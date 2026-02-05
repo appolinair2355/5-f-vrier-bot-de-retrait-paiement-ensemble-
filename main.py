@@ -97,16 +97,25 @@ last_source_game_number = 0
 
 current_prediction_target = None
 last_predicted_number = None
-pending_finalization = {}
 
-SUIT_CYCLE = ['♥', '♠', '♦', '♣']
+# 🔴 NOUVEAU: Suivi des vérifications en cours
+verification_state = {
+    'predicted_number': None,      # Numéro prédit (ex: 24)
+    'predicted_suit': None,        # Costume prédit (ex: ♣)
+    'current_check': 0,            # 0=N, 1=N+1, 2=N+2, 3=N+3
+    'message_id': None,            # ID message prédiction
+    'channel_id': None,            # Canal prédiction
+    'status': None                 # pending, ✅0️⃣, ✅1️⃣, ✅2️⃣, ✅3️⃣, ❌
+}
+
+SUIT_CYCLE = ['♥', '♦', '♣', '♠', '♦', '♥', '♠', '♣']
 
 already_predicted_games = set()
 stats_bilan = {
     'total': 0,
     'wins': 0,
     'losses': 0,
-    'win_details': {'✅0️⃣': 0, '✅1️⃣': 0, '✅2️⃣': 0},
+    'win_details': {'✅0️⃣': 0, '✅1️⃣': 0, '✅2️⃣': 0, '✅3️⃣': 0},
     'loss_details': {'❌': 0}
 }
 
@@ -117,6 +126,9 @@ admin_setting_time = {}
 admin_message_state = {}
 
 predictions_enabled = True
+
+# 🔴 NOUVEAU: Stockage des messages en attente de finalisation
+pending_finalization = {}
 
 # ============================================================
 # CONFIGURATION DE L'ESSAI
@@ -171,11 +183,21 @@ def get_next_prediction_number(after_number):
             return num
     return None
 
-def get_previous_odd_number(even_number):
-    return even_number - 1
-
 def is_valid_prediction_number(number):
     return number in VALID_EVEN_NUMBERS
+
+def is_trigger_number(number):
+    """Vérifie si c'est un déclencheur (impair à 1 part d'un pair valide)"""
+    if number % 2 == 0:  # Si c'est pair, c'est pas un déclencheur
+        return False
+    next_num = number + 1
+    return next_num in VALID_EVEN_NUMBERS
+
+def get_trigger_target(number):
+    """Retourne le pair valide qui suit ce déclencheur"""
+    if not is_trigger_number(number):
+        return None
+    return number + 1
 
 # ============================================================
 # GESTION DES PAUSES
@@ -734,19 +756,19 @@ L'utilisateur a été expulsé du canal VIP.""")
         logger.error(f"Erreur expulsion utilisateur {user_id}: {e}")
 
 # ============================================================
-# SYSTÈME DE PRÉDICTION - CORRIGÉ AVEC VÉRIFICATION NUMÉRO
+# SYSTÈME DE PRÉDICTION - CORRIGÉ
 # ============================================================
 
 async def send_prediction(target_game, predicted_suit, base_game):
-    global current_prediction_target, last_predicted_number
+    global verification_state, last_predicted_number
     
     if not predictions_enabled:
         logger.info("Prédictions désactivées, envoi annulé.")
         return False
     
-    # 🔴 VÉRIFICATION: Éviter de prédire si une prédiction est déjà en cours
-    if current_prediction_target is not None:
-        logger.warning(f"Prédiction déjà en cours (#{current_prediction_target['game_number']}), nouvelle prédiction annulée")
+    # Vérifier si une prédiction est déjà en cours
+    if verification_state['predicted_number'] is not None:
+        logger.warning(f"Prédiction déjà en cours (#{verification_state['predicted_number']}), nouvelle annulée")
         return False
     
     try:
@@ -759,54 +781,62 @@ async def send_prediction(target_game, predicted_suit, base_game):
         
         sent_msg = await client.send_message(entity, prediction_msg)
         
-        current_prediction_target = {
-            'game_number': target_game,
-            'suit': predicted_suit,
-            'base_game': base_game,
+        # Initialiser l'état de vérification
+        verification_state = {
+            'predicted_number': target_game,
+            'predicted_suit': predicted_suit,
+            'current_check': 0,  # 0 = N, 1 = N+1, 2 = N+2, 3 = N+3
             'message_id': sent_msg.id,
             'channel_id': prediction_channel_id,
-            'status': 'pending',
-            'checks': 0
+            'status': 'pending'
         }
         
         last_predicted_number = target_game
         record_prediction()
         
         logger.info(f"✅ Prédiction envoyée: #{target_game} -> {predicted_suit}")
+        logger.info(f"🔍 Vérification démarrée: attendre #{target_game} (check 0/4)")
         return True
         
     except Exception as e:
         logger.error(f"❌ Erreur envoi prédiction: {e}")
         return False
 
-async def update_prediction_status(game_number, status):
-    global current_prediction_target
+async def update_prediction_status(status):
+    """Met à jour le statut de la prédiction dans le canal"""
+    global verification_state, stats_bilan
     
-    if not current_prediction_target:
-        return False
-    
-    if current_prediction_target['game_number'] != game_number:
+    if not verification_state['predicted_number']:
         return False
     
     try:
-        channel_id = current_prediction_target['channel_id']
-        message_id = current_prediction_target['message_id']
-        suit = current_prediction_target['suit']
+        channel_id = verification_state['channel_id']
+        message_id = verification_state['message_id']
+        predicted_num = verification_state['predicted_number']
+        suit = verification_state['predicted_suit']
         
+        # Déterminer le texte du statut
         if status == "❌":
             status_text = "❌ PERDU"
-        elif status.startswith("✅"):
-            status_text = f"{status} GAGNÉ"
+        elif status == "✅0️⃣":
+            status_text = "✅0️⃣ GAGNÉ IMMÉDIAT!"
+        elif status == "✅1️⃣":
+            status_text = "✅1️⃣ GAGNÉ AU 2ÈME!"
+        elif status == "✅2️⃣":
+            status_text = "✅2️⃣ GAGNÉ AU 3ÈME!"
+        elif status == "✅3️⃣":
+            status_text = "✅3️⃣ GAGNÉ AU 4ÈME!"
         else:
             status_text = status
         
-        updated_msg = f"""🎰 **PRÉDICTION #{game_number}**
+        updated_msg = f"""🎰 **PRÉDICTION #{predicted_num}**
 🎯 Couleur: {SUIT_DISPLAY.get(suit, suit)}
 📊 Statut: {status_text}"""
         
         await client.edit_message(channel_id, message_id, updated_msg)
         
-        if status in ['✅0️⃣', '✅1️⃣', '✅2️⃣']:
+        # Mettre à jour les stats
+        if status in ['✅0️⃣', '✅1️⃣', '✅2️⃣', '✅3️⃣']:
             stats_bilan['total'] += 1
             stats_bilan['wins'] += 1
             stats_bilan['win_details'][status] = stats_bilan['win_details'].get(status, 0) + 1
@@ -815,7 +845,16 @@ async def update_prediction_status(game_number, status):
             stats_bilan['losses'] += 1
             stats_bilan['loss_details']['❌'] = stats_bilan['loss_details'].get('❌', 0) + 1
         
-        current_prediction_target = None
+        # Réinitialiser l'état de vérification
+        logger.info(f"🏁 Prédiction #{predicted_num} terminée avec statut: {status}")
+        verification_state = {
+            'predicted_number': None,
+            'predicted_suit': None,
+            'current_check': 0,
+            'message_id': None,
+            'channel_id': None,
+            'status': None
+        }
         
         return True
         
@@ -828,15 +867,22 @@ async def update_prediction_status(game_number, status):
 # ============================================================
 
 def extract_game_number(message):
+    # Chercher #N suivi de chiffres
     match = re.search(r"#N\s*(\d+)", message, re.IGNORECASE)
     if match:
         return int(match.group(1))
+    # Chercher # suivi de chiffres au début
     match = re.search(r"^#(\d+)", message)
+    if match:
+        return int(match.group(1))
+    # Chercher N suivi de chiffres
+    match = re.search(r"N\s*(\d+)", message, re.IGNORECASE)
     if match:
         return int(match.group(1))
     return None
 
-def extract_suits_from_parentheses(message_text):
+def extract_first_group_suits(message_text):
+    """Extrait les costumes du PREMIER groupe de parenthèses"""
     matches = re.findall(r"\(([^)]+)\)", message_text)
     if not matches:
         return []
@@ -844,6 +890,7 @@ def extract_suits_from_parentheses(message_text):
     first_group = matches[0]
     suits = []
     
+    # Normaliser les costumes
     normalized = first_group.replace('❤️', '♥').replace('❤', '♥').replace('♥️', '♥')
     normalized = normalized.replace('♠️', '♠').replace('♦️', '♦').replace('♣️', '♣')
     
@@ -854,151 +901,170 @@ def extract_suits_from_parentheses(message_text):
     return suits
 
 def is_message_finalized(message_text):
+    """Vérifie si le message est finalisé (✅ ou 🔰 présent)"""
     return '✅' in message_text or '🔰' in message_text
 
 def is_message_being_edited(message_text):
-    return '▶️' in message_text
+    """Vérifie si le message est en cours d'édition (⏰ au début)"""
+    return message_text.strip().startswith('⏰')
 
-# 🔴 NOUVELLE FONCTION: Vérification avec correspondance exacte du numéro
-async def check_prediction_result(source_message_text, received_game_number):
+# ============================================================
+# SYSTÈME DE VÉRIFICATION - NOUVEAU
+# ============================================================
+
+async def process_verification(game_number, message_text):
     """
-    Vérifie si le résultat correspond à la prédiction en cours.
-    Retourne: '✅0️⃣', '❌', ou None si pas encore déterminé
+    Gère la vérification séquentielle de la prédiction
     """
-    if not current_prediction_target:
-        return None
+    global verification_state
     
-    predicted_game_number = current_prediction_target['game_number']
-    predicted_suit = current_prediction_target['suit']
+    if verification_state['predicted_number'] is None:
+        return  # Pas de prédiction en cours
     
-    # 🔴 VÉRIFICATION CRUCIALE: Le numéro reçu doit correspondre au numéro prédit
-    if received_game_number != predicted_game_number:
-        logger.info(f"Numéro reçu #{received_game_number} != Numéro prédit #{predicted_game_number}, attente...")
-        return None
+    predicted_num = verification_state['predicted_number']
+    predicted_suit = verification_state['predicted_suit']
+    current_check = verification_state['current_check']
     
-    # Extraction des costumes du message source
-    suits = extract_suits_from_parentheses(source_message_text)
+    # Calculer quel numéro on doit vérifier maintenant
+    expected_number = predicted_num + current_check
+    
+    # Vérifier si c'est le bon numéro
+    if game_number != expected_number:
+        logger.info(f"⏳ Attente #{expected_number}, reçu #{game_number} - ignoré")
+        return
+    
+    # Vérifier le costume dans le premier groupe
+    suits = extract_first_group_suits(message_text)
+    logger.info(f"🔍 Vérification #{game_number} (check {current_check}/3): costumes trouvés {suits}, attendu {predicted_suit}")
     
     if predicted_suit in suits:
-        logger.info(f"✅ VICTOIRE: Costume {predicted_suit} trouvé dans #{received_game_number}!")
-        return '✅0️⃣'
+        # Costume trouvé !
+        status = f"✅{current_check}️⃣"
+        await update_prediction_status(status)
+        return
+    
+    # Costume pas trouvé, passer au suivant
+    if current_check < 3:
+        # Passer au check suivant (N+1, N+2, N+3)
+        verification_state['current_check'] += 1
+        next_num = predicted_num + verification_state['current_check']
+        logger.info(f"❌ Pas trouvé sur #{game_number}, prochain check: #{next_num}")
     else:
-        logger.info(f"❌ ÉCHEC: Costume {predicted_suit} PAS trouvé dans #{received_game_number}")
-        return '❌'
+        # Dernier check (N+3) échoué
+        logger.info(f"❌ Perdu après 4 vérifications (jusqu'à #{game_number})")
+        await update_prediction_status("❌")
 
 # ============================================================
 # TRAITEMENT DES MESSAGES SOURCE - CORRIGÉ
 # ============================================================
 
 async def process_source_message(event, is_edit=False):
-    global current_game_number, last_source_game_number, current_prediction_target
+    global current_game_number, last_source_game_number, pending_finalization
     
     try:
         message_text = event.message.message
         msg_type = "ÉDITÉ" if is_edit else "NOUVEAU"
-        logger.info(f"📩 Message {msg_type} reçu: {message_text[:100]}...")
         
-        # Vérifier si c'est un message en cours d'édition
-        if is_message_being_edited(message_text):
-            game_num = extract_game_number(message_text)
-            if game_num:
-                logger.info(f"⏳ Message #{game_num} en édition, mise en attente...")
-                pending_finalization[game_num] = message_text
-            return
-        
-        # Vérifier si le message est finalisé
-        if not is_message_finalized(message_text):
-            logger.info("Message non finalisé ignoré")
-            return
-        
+        # Extraire le numéro
         game_number = extract_game_number(message_text)
+        
         if game_number is None:
-            logger.info("Numéro de jeu non détecté")
+            logger.debug(f"Message {msg_type} sans numéro détecté")
             return
         
-        current_game_number = game_number
-        last_source_game_number = game_number
+        logger.info(f"📩 Message {msg_type} reçu: #{game_number} - {message_text[:80]}...")
         
-        # Retirer des messages en attente si présent
-        if game_number in pending_finalization:
-            del pending_finalization[game_number]
-        
-        logger.info(f"🎲 Jeu finalisé détecté: #{game_number} (source: {msg_type})")
-        
-        # 🔴 VÉRIFICATION: Si on attend une prédiction, vérifier le numéro
-        if current_prediction_target:
-            target_num = current_prediction_target['game_number']
-            
-            # Vérifier si le numéro reçu correspond au numéro prédit
-            if game_number == target_num:
-                result = await check_prediction_result(message_text, game_number)
-                
-                if result:
-                    logger.info(f"🎯 Résultat trouvé pour #{target_num}: {result}")
-                    await update_prediction_status(target_num, result)
-                    
-                    # Réinitialiser pour la prochaine prédiction
-                    current_prediction_target = None
-                    
-                    if is_currently_paused():
-                        logger.info("⏸️ En pause, pas de nouvelle prédiction")
-                        return
-            else:
-                logger.info(f"⏳ Attente du numéro #{target_num}, actuel: #{game_number}")
-        
-        # Gestion des pauses
-        if is_currently_paused():
-            remaining = get_remaining_pause_time()
-            logger.info(f"⏸️ Pause en cours, {remaining}s restantes")
+        # Si message en édition (⏰), stocker et attendre
+        if is_message_being_edited(message_text):
+            logger.info(f"⏳ Message #{game_number} en édition, mise en attente...")
+            pending_finalization[game_number] = message_text
             return
         
-        if should_pause():
-            duration = start_pause()
-            minutes = duration // 60
-            logger.info(f"⏸️ Début pause automatique ({minutes} minutes)")
-            try:
-                await client.send_message(
-                    get_prediction_channel_id(),
-                    f"⏸️ **PAUSE**\nProchaine prédiction dans {minutes} minutes..."
-                )
-            except Exception as e:
-                logger.error(f"Erreur envoi message pause: {e}")
-            return
+        # Si message finalisé (✅ ou 🔰)
+        if is_message_finalized(message_text):
+            # Retirer des pending si présent
+            if game_number in pending_finalization:
+                del pending_finalization[game_number]
+            
+            current_game_number = game_number
+            last_source_game_number = game_number
+            
+            logger.info(f"✅ Message #{game_number} finalisé détecté")
+            
+            # 🔴 VÉRIFICATION: Si on a une prédiction en cours, vérifier ce numéro
+            if verification_state['predicted_number'] is not None:
+                await process_verification(game_number, message_text)
+            
+            # 🔴 LANCEMENT AUTO: Vérifier si c'est un déclencheur et pas de prédiction active
+            if verification_state['predicted_number'] is None and not is_currently_paused():
+                await check_and_launch_prediction(game_number)
         
-        # Gestion reprise après pause
-        if pause_config.get('just_resumed'):
-            pause_config['just_resumed'] = False
-            save_pause_config()
+        # Si message ni en édition ni finalisé, ignorer pour la vérification
+        # mais vérifier quand même pour le lancement auto
+        elif not is_message_being_edited(message_text):
+            # Message normal sans ✅/🔰 (rare mais possible)
+            current_game_number = game_number
+            last_source_game_number = game_number
             
-            next_even = get_next_prediction_number(game_number)
-            if not next_even:
-                logger.info("Aucun prochain numéro pair trouvé")
-                return
-            
-            target_odd = get_previous_odd_number(next_even)
-            
-            if game_number < target_odd:
-                logger.info(f"⏳ Attente de #{target_odd} avant de prédire #{next_even} (après pause)")
-                return
-        
-        # Lancer une nouvelle prédiction si conditions remplies
-        if game_number in VALID_EVEN_NUMBERS or game_number % 2 == 1:
-            if game_number % 2 == 0 and game_number % 10 != 0 and game_number >= 6:
-                next_num = get_next_prediction_number(game_number)
-            else:
-                next_num = get_next_prediction_number(game_number)
-            
-            if next_num and next_num not in already_predicted_games:
-                suit = get_suit_for_number(next_num)
-                if suit:
-                    logger.info(f"🔮 Prédiction lancée: #{next_num} -> {suit}")
-                    await send_prediction(next_num, suit, game_number)
-                    already_predicted_games.add(next_num)
+            # Vérifier quand même pour lancement auto
+            if verification_state['predicted_number'] is None and not is_currently_paused():
+                await check_and_launch_prediction(game_number)
         
     except Exception as e:
         logger.error(f"❌ Erreur process_source_message: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+async def check_and_launch_prediction(game_number):
+    """
+    Vérifie si on doit lancer une prédiction automatique
+    """
+    global pause_config
+    
+    # Vérifier si c'est un déclencheur (impair à 1 part)
+    if not is_trigger_number(game_number):
+        logger.info(f"#{game_number} n'est pas un déclencheur, attente...")
+        return
+    
+    # Obtenir le pair valide cible
+    target_num = get_trigger_target(game_number)
+    if not target_num:
+        logger.warning(f"Impossible de trouver le target pour déclencheur #{game_number}")
+        return
+    
+    # Vérifier si déjà prédit
+    if target_num in already_predicted_games:
+        logger.info(f"#{target_num} déjà prédit, ignoré")
+        return
+    
+    # Vérifier pause
+    if should_pause():
+        duration = start_pause()
+        minutes = duration // 60
+        logger.info(f"⏸️ Début pause automatique ({minutes} minutes)")
+        try:
+            await client.send_message(
+                get_prediction_channel_id(),
+                f"⏸️ **PAUSE**\nProchaine prédiction dans {minutes} minutes..."
+            )
+        except Exception as e:
+            logger.error(f"Erreur envoi message pause: {e}")
+        return
+    
+    # Gestion reprise après pause
+    if pause_config.get('just_resumed'):
+        pause_config['just_resumed'] = False
+        save_pause_config()
+        # Après pause, on attend un nouveau déclencheur (déjà vérifié ci-dessus)
+        logger.info(f"🔄 Reprise après pause, déclencheur #{game_number} détecté")
+    
+    # Lancer la prédiction
+    suit = get_suit_for_number(target_num)
+    if suit:
+        logger.info(f"🔮 Déclencheur #{game_number} détecté → Prédiction #{target_num} -> {suit}")
+        success = await send_prediction(target_num, suit, game_number)
+        if success:
+            already_predicted_games.add(target_num)
 
 # ============================================================
 # GESTION DES MESSAGES ET COMMANDES
@@ -1006,19 +1072,21 @@ async def process_source_message(event, is_edit=False):
 
 @client.on(events.NewMessage)
 async def handle_new_message(event):
-    logger.info(f"Message reçu de {event.sender_id}: {event.message.message}")
-    
     if event.is_group or event.is_channel:
         if event.chat_id == get_source_channel_id():
             await process_source_message(event, is_edit=False)
         return
 
+    # Gestion messages privés (inchangé)
     if event.message.message and event.message.message.startswith('/'):
         return
 
     user_id = event.sender_id
     user = get_user(user_id)
 
+    # ... (reste du code de gestion des messages privés inchangé)
+    # Gestion inscription, paiement, etc.
+    
     if user_id == ADMIN_ID and user_id in admin_setting_time:
         state = admin_setting_time[user_id]
         if state['step'] == 'awaiting_duration':
@@ -1175,7 +1243,7 @@ L'utilisateur va recevoir le lien d'essai de {get_trial_duration()} min.""")
         return
 
 # ============================================================
-# CALLBACKS VALIDATION PAIEMENT
+# CALLBACKS VALIDATION PAIEMENT (inchangés)
 # ============================================================
 
 @client.on(events.CallbackQuery(data=re.compile(rb'validate_payment_(\d+)')))
@@ -1237,7 +1305,7 @@ Votre paiement n'a pas été validé.
     await event.answer("Rejeté", alert=False)
 
 # ============================================================
-# COMMANDES ADMIN - GESTION DES CANAUX
+# COMMANDES ADMIN (inchangées sauf ajouts)
 # ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/setchannel(\s+.+)?$'))
@@ -1349,10 +1417,6 @@ Tous les canaux ont été réinitialisés aux valeurs par défaut:
 • VIP: `{DEFAULT_VIP_CHANNEL_ID}`
 • Lien VIP: `{DEFAULT_VIP_CHANNEL_LINK}`""")
 
-# ============================================================
-# COMMANDES ADMIN - GESTION TEMPS ET UTILISATEURS
-# ============================================================
-
 @client.on(events.NewMessage(pattern=r'^/settime(\s+\d+)?(\s+.+)?$'))
 async def cmd_settime(event):
     if event.is_group or event.is_channel: 
@@ -1418,10 +1482,18 @@ async def cmd_stop(event):
 async def cmd_resume(event):
     if event.sender_id != ADMIN_ID: 
         return
-    global predictions_enabled, already_predicted_games, current_prediction_target
+    global predictions_enabled, already_predicted_games, verification_state
     predictions_enabled = True
     already_predicted_games.clear()
-    current_prediction_target = None
+    # Réinitialiser aussi l'état de vérification
+    verification_state = {
+        'predicted_number': None,
+        'predicted_suit': None,
+        'current_check': 0,
+        'message_id': None,
+        'channel_id': None,
+        'status': None
+    }
     await event.respond("🚀 **PRÉDICTIONS REDÉMARRÉES ET DÉBLOQUÉES**\n(Historique de sécurité vidé)")
 
 @client.on(events.NewMessage(pattern=r'^/setnext (\d+) ([♥♠♦♣])$'))
@@ -1451,10 +1523,6 @@ async def cmd_setnext(event):
 
     except Exception as e:
         await event.respond(f"❌ Erreur: {e}")
-
-# ============================================================
-# COMMANDES ADMIN - GESTION DES PAUSES
-# ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/pausecycle(\s+.+)?$'))
 async def cmd_pausecycle(event):
@@ -1505,6 +1573,14 @@ async def cmd_predictinfo(event):
         return
     
     current_cycle = [x//60 for x in pause_config['cycle']]
+    
+    # Info sur la vérification en cours
+    verif_info = "Aucune"
+    if verification_state['predicted_number']:
+        next_check_num = verification_state['predicted_number'] + verification_state['current_check']
+        verif_info = f"""#{verification_state['predicted_number']} ({verification_state['predicted_suit']})
+Check: {verification_state['current_check']}/3 (attend #{next_check_num})"""
+    
     info = f"""📊 **INFO PRÉDICTION**
     
 **Numéro source actuel:** {current_game_number}
@@ -1515,8 +1591,8 @@ async def cmd_predictinfo(event):
 **Index pause:** {pause_config['current_index']}
 **Cycle pause:** {current_cycle} min
 
-**Prédiction en cours:** {current_prediction_target['game_number'] if current_prediction_target else 'Aucune'}
-**Costume prédit:** {current_prediction_target['suit'] if current_prediction_target else 'N/A'}
+**Vérification en cours:**
+{verif_info}
 """
     await event.respond(info)
 
@@ -1541,49 +1617,54 @@ async def cmd_resetpause(event):
     await event.respond("✅ **Compteur de pause réinitialisé**")
 
 # ============================================================
-# COMMANDES ADMIN - DEBUG PRÉDICTION
+# COMMANDES ADMIN - DEBUG PRÉDICTION (NOUVEAU)
 # ============================================================
 
-@client.on(events.NewMessage(pattern='/forcecheck'))
-async def cmd_forcecheck(event):
+@client.on(events.NewMessage(pattern='/verifstatus'))
+async def cmd_verifstatus(event):
     if event.sender_id != ADMIN_ID:
         return
     
-    global current_prediction_target
-    
-    if not current_prediction_target:
-        await event.respond("❌ Aucune prédiction en cours.")
+    if verification_state['predicted_number'] is None:
+        await event.respond("ℹ️ Aucune vérification en cours.")
         return
     
-    info = f"""🔍 **PRÉDICTION EN COURS**
-
-🎯 Numéro prédit: #{current_prediction_target['game_number']}
-🎨 Costume: {current_prediction_target['suit']}
-📊 Statut: {current_prediction_target['status']}
-🔢 Vérifications: {current_prediction_target['checks']}
-📺 Canal: {current_prediction_target['channel_id']}
-🆔 Message ID: {current_prediction_target['message_id']}
-
-💡 `/cleartarget` pour forcer la réinitialisation"""
+    next_num = verification_state['predicted_number'] + verification_state['current_check']
     
-    await event.respond(info)
+    await event.respond(f"""🔍 **STATUT VÉRIFICATION**
 
-@client.on(events.NewMessage(pattern='/cleartarget'))
-async def cmd_cleartarget(event):
+🎯 Numéro prédit: #{verification_state['predicted_number']}
+🎨 Costume: {verification_state['predicted_suit']}
+🔢 Check actuel: {verification_state['current_check']}/3
+⏳ Attend: #{next_num}
+📊 Statut: {verification_state['status']}
+
+💡 `/clearverif` pour forcer la réinitialisation""")
+
+@client.on(events.NewMessage(pattern='/clearverif'))
+async def cmd_clearverif(event):
     if event.sender_id != ADMIN_ID:
         return
     
-    global current_prediction_target
+    global verification_state
     
-    if current_prediction_target:
-        old_target = current_prediction_target['game_number']
-        current_prediction_target = None
-        await event.respond(f"✅ Prédiction #{old_target} effacée. Nouvelle prédiction possible.")
+    old_num = verification_state['predicted_number']
+    verification_state = {
+        'predicted_number': None,
+        'predicted_suit': None,
+        'current_check': 0,
+        'message_id': None,
+        'channel_id': None,
+        'status': None
+    }
+    
+    if old_num:
+        await event.respond(f"✅ Vérification #{old_num} effacée. Nouvelle prédiction possible.")
     else:
-        await event.respond("ℹ️ Aucune prédiction à effacer.")
+        await event.respond("ℹ️ Aucune vérification à effacer.")
 
 # ============================================================
-# COMMANDES ADMIN - GESTION DES ESSAIS
+# COMMANDES ADMIN - GESTION DES ESSAIS (inchangées)
 # ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/settrialtime(\s+\d+)?$'))
@@ -1742,7 +1823,7 @@ Vous avez été retiré du canal VIP.
         await event.respond(f"❌ Erreur: {e}")
 
 # ============================================================
-# COMMANDES ADMIN - GESTION DES ABONNÉS
+# COMMANDES ADMIN - GESTION DES ABONNÉS (inchangées)
 # ============================================================
 
 @client.on(events.NewMessage(pattern='/subscribers'))
@@ -1890,7 +1971,7 @@ Vous avez été retiré du canal VIP.
         await event.respond(f"❌ Erreur: {e}")
 
 # ============================================================
-# COMMANDE INFO UTILISATEUR
+# COMMANDE INFO UTILISATEUR (inchangée)
 # ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/userinfo (\d+)$'))
@@ -1940,7 +2021,7 @@ async def cmd_userinfo(event):
         await event.respond(f"❌ Erreur: {e}")
 
 # ============================================================
-# COMMANDE MONITORING TEMPS RÉEL
+# COMMANDE MONITORING TEMPS RÉEL (inchangée)
 # ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/monitor(\s+\d+)?$'))
@@ -2135,7 +2216,8 @@ async def cmd_bilan(event):
 **Détails:**
 • Immédiates: {stats_bilan['win_details'].get('✅0️⃣', 0)}
 • 2ème: {stats_bilan['win_details'].get('✅1️⃣', 0)}
-• 3ème: {stats_bilan['win_details'].get('✅2️⃣', 0)}""")
+• 3ème: {stats_bilan['win_details'].get('✅2️⃣', 0)}
+• 4ème: {stats_bilan['win_details'].get('✅3️⃣', 0)}""")
 
 @client.on(events.NewMessage(pattern='/reset'))
 async def cmd_reset_all(event):
@@ -2147,7 +2229,7 @@ async def cmd_reset_all(event):
 
     global users_data, pending_predictions, processed_messages
     global current_game_number, last_source_game_number, stats_bilan
-    global already_predicted_games, pending_payments, current_prediction_target
+    global already_predicted_games, pending_payments, verification_state
     global pending_finalization
 
     users_data = {}
@@ -2157,14 +2239,23 @@ async def cmd_reset_all(event):
     already_predicted_games.clear()
     pending_payments.clear()
     pending_finalization.clear()
-    current_prediction_target = None
+    
+    # Réinitialiser l'état de vérification
+    verification_state = {
+        'predicted_number': None,
+        'predicted_suit': None,
+        'current_check': 0,
+        'message_id': None,
+        'channel_id': None,
+        'status': None
+    }
 
     current_game_number = 0
     last_source_game_number = 0
 
     stats_bilan = {
         'total': 0, 'wins': 0, 'losses': 0,
-        'win_details': {'✅0️⃣': 0, '✅1️⃣': 0, '✅2️⃣': 0},
+        'win_details': {'✅0️⃣': 0, '✅1️⃣': 0, '✅2️⃣': 0, '✅3️⃣': 0},
         'loss_details': {'❌': 0}
     }
 
@@ -2186,8 +2277,8 @@ async def cmd_help(event):
 /msg ID - Envoyer message privé
 
 **Admin - Prédictions:**
-/forcecheck - Voir prédiction en cours
-/cleartarget - Effacer prédiction bloquée
+/verifstatus - Voir vérification en cours
+/clearverif - Effacer vérification bloquée
 /predictinfo - Info système prédiction
 /stop - Arrêter prédictions
 /resume - Reprendre prédictions
@@ -2255,7 +2346,7 @@ async def cmd_payer(event):
     update_user(user_id, {'pending_payment': True, 'awaiting_screenshot': True})
 
 # ============================================================
-# GESTION DES MESSAGES ÉDITÉS - NOUVEAU
+# GESTION DES MESSAGES ÉDITÉS
 # ============================================================
 
 @client.on(events.MessageEdited)
@@ -2295,8 +2386,8 @@ async def index(request):
         <div class="number">{len(users_data)}</div>
     </div>
     <div class="status">
-        <div class="label">Prédiction Active</div>
-        <div class="number">{current_prediction_target['game_number'] if current_prediction_target else 'Aucune'}</div>
+        <div class="label">Vérification Active</div>
+        <div class="number">{verification_state['predicted_number'] if verification_state['predicted_number'] else 'Aucune'}</div>
     </div>
     <div class="status">
         <div class="label">En Pause</div>
@@ -2308,9 +2399,9 @@ async def index(request):
     </div>
     <div class="status">
         <div class="label">Canal Prédiction</div>
-        <div class="number">{get_prediction_channel_id()}</div>
+        <div class "number">{get_prediction_channel_id()}</div>
     </div>
-    <p style="margin-top: 40px;">✅ Système opérationnel | Essai: {get_trial_duration()}min | Vérification auto des résultats (y compris messages édités)</p>
+    <p style="margin-top: 40px;">✅ Système opérationnel | Essai: {get_trial_duration()}min | Vérification: N→N+1→N+2→N+3</p>
 </body>
 </html>"""
     return web.Response(text=html, content_type='text/html', status=200)
@@ -2360,9 +2451,9 @@ async def cmd_start(event):
 
 🚀 **Système de Prédiction Automatique**
 • Numéros pairs (6-1436, sauf finissant par 0)
-• Cycle de costumes: ♥ ♠ ♦ ♣
+• Cycle de costumes: ♥ ♦ ♣ ♠ ♦ ♥ ♠ ♣
 • Pause auto après 5 prédictions
-• Vérification automatique des résultats (même édités)
+• Vérification automatique: N → N+1 → N+2 → N+3
 
 📝 **Étape 1/3: Quel est votre nom de famille?**"""
 
