@@ -636,7 +636,7 @@ def is_message_editing(message_text: str) -> bool:
 
 def is_message_finalized(message_text: str) -> bool:
     """Vérifie si le message est finalisé (contient ✅ ou 🔰)"""
-    return '✅' in message_text or '🔰' in message_text)
+    return '✅' in message_text or '🔰' in message_text
 
 async def process_verification_step(game_number: int, message_text: str):
     """
