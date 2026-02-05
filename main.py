@@ -625,8 +625,6 @@ async def auto_kick_trial_user(user_id: int, delay_seconds: int):
         try:
             entity = await client.get_input_entity(vip_channel_id)
             await client.kick_participant(entity, user_id)
-            
-            # Ré-autoriser pour qu'il puisse revenir
             await client(EditBannedRequest(
                 channel=entity,
                 participant=user_id,
@@ -1276,10 +1274,10 @@ L'utilisateur va recevoir le lien d'essai de {get_trial_duration()} min.""")
         return
 
 # ============================================================
-# CALLBACKS VALIDATION PAIEMENT
+# CALLBACKS VALIDATION PAIEMENT (CORRIGÉ)
 # ============================================================
 
-@client.on(events.CallbackQuery(data=re.compile(b'validate_payment_(\d+)')))
+@client.on(events.CallbackQuery(data=re.compile(rb'validate_payment_(\d+)')))
 async def handle_validate_payment(event):
     if event.sender_id != ADMIN_ID:
         await event.answer("Accès refusé", alert=True)
@@ -1314,7 +1312,7 @@ async def handle_validate_payment(event):
 
     await event.answer("Entrez la durée", alert=False)
 
-@client.on(events.CallbackQuery(data=re.compile(b'reject_payment_(\d+)')))
+@client.on(events.CallbackQuery(data=re.compile(rb'reject_payment_(\d+)')))
 async def handle_reject_payment(event):
     if event.sender_id != ADMIN_ID:
         await event.answer("Accès refusé", alert=True)
@@ -1723,6 +1721,7 @@ async def cmd_trials(event):
 {chunk_text}
 
 💡 `/extendtrial ID minutes` | `/canceltrial ID` | `/userinfo ID`""")
+        await asyncio.sleep(0.5)
 
 @client.on(events.NewMessage(pattern=r'^/extendtrial (\d+) (\d+)$'))
 async def cmd_extendtrial(event):
@@ -1863,4 +1862,6 @@ async def cmd_subscribers(event):
         chunk_text = '\n'.join(chunk)
         await event.respond(f"""✅ **ABONNÉS ACTIFS** ({i+1}-{min(i+len(chunk), len(sub_users))}/{len(sub_users)})
 
-{chunk_text
+{chunk_text}
+
+💡 `/addtime ID durée` | `/rem
