@@ -981,7 +981,7 @@ async def process_verification(game_number, message_text):
         await update_prediction_status("❌")
 
 # ============================================================
-# TRAITEMENT DES MESSAGES SOURCE
+# TRAITEMENT DES MESSAGES SOURCE - CORRIGÉ
 # ============================================================
 
 async def process_source_message(event, is_edit=False):
@@ -1000,9 +1000,14 @@ async def process_source_message(event, is_edit=False):
         
         logger.info(f"📩 Message {msg_type} reçu: #{game_number} - {message_text[:80]}...")
         
-        # Si message en édition (⏰), stocker et attendre
+        # 🔴 LANCEMENT AUTO: Vérifier dès que possible si c'est un déclencheur
+        # (même si le message n'est pas finalisé - sauf si en pause)
+        if verification_state['predicted_number'] is None and not is_currently_paused():
+            await check_and_launch_prediction(game_number)
+        
+        # Si message en édition (⏰), stocker et attendre pour la VÉRIFICATION
         if is_message_being_edited(message_text):
-            logger.info(f"⏳ Message #{game_number} en édition, mise en attente...")
+            logger.info(f"⏳ Message #{game_number} en édition, mise en attente pour vérification...")
             pending_finalization[game_number] = message_text
             return
         
@@ -1017,24 +1022,19 @@ async def process_source_message(event, is_edit=False):
             
             logger.info(f"✅ Message #{game_number} finalisé détecté")
             
-            # Vérification: Si on a une prédiction en cours, vérifier ce numéro
+            # 🔴 VÉRIFICATION: Si on a une prédiction en cours, vérifier ce numéro
             if verification_state['predicted_number'] is not None:
                 await process_verification(game_number, message_text)
-            
-            # LANCEMENT AUTO: Vérifier si c'est un déclencheur et pas de prédiction active
-            if verification_state['predicted_number'] is None and not is_currently_paused():
-                await check_and_launch_prediction(game_number)
         
-        # Si message ni en édition ni finalisé, ignorer pour la vérification
-        # mais vérifier quand même pour le lancement auto
+        # Si message ni en édition ni finalisé
         elif not is_message_being_edited(message_text):
             # Message normal sans ✅/🔰 (rare mais possible)
             current_game_number = game_number
             last_source_game_number = game_number
             
-            # Vérifier quand même pour lancement auto
-            if verification_state['predicted_number'] is None and not is_currently_paused():
-                await check_and_launch_prediction(game_number)
+            # Vérifier quand même pour la vérification si une prédiction est en cours
+            if verification_state['predicted_number'] is not None:
+                await process_verification(game_number, message_text)
         
     except Exception as e:
         logger.error(f"❌ Erreur process_source_message: {e}")
@@ -1044,6 +1044,7 @@ async def process_source_message(event, is_edit=False):
 async def check_and_launch_prediction(game_number):
     """
     Vérifie si on doit lancer une prédiction automatique
+    LANCEMENT INSTANTANÉ dès qu'on détecte un déclencheur
     """
     global pause_config
     
@@ -1083,10 +1084,10 @@ async def check_and_launch_prediction(game_number):
         save_pause_config()
         logger.info(f"🔄 Reprise après pause, déclencheur #{game_number} détecté")
     
-    # Lancer la prédiction
+    # 🔴 LANCER IMMÉDIATEMENT sans attendre la finalisation !
     suit = get_suit_for_number(target_num)
     if suit:
-        logger.info(f"🔮 Déclencheur #{game_number} détecté → Prédiction #{target_num} -> {suit}")
+        logger.info(f"🔮 Déclencheur #{game_number} détecté → Prédiction #{target_num} -> {suit} (LANCÉ INSTANTANÉMENT)")
         success = await send_prediction(target_num, suit, game_number)
         if success:
             already_predicted_games.add(target_num)
@@ -2181,24 +2182,6 @@ async def cmd_status(event):
         return
 
     user_id = event.sender_id
-    
-    # 🔴 ADMIN a un statut spécial sans inscription
-    if user_id == ADMIN_ID:
-        await event.respond(f"""📊 **VOTRE STATUT**
-
-👤 **Rôle:** 👑 ADMINISTRATEUR
-✅ **Accès:** Illimité à toutes les fonctionnalités
-
-📊 **Commandes disponibles:**
-• `/users` - Liste des utilisateurs
-• `/predictinfo` - Info prédiction
-• `/verifstatus` - Vérification en cours
-• `/stop` / `/resume` - Contrôle prédictions
-• Et toutes les autres commandes admin...
-
-⚡ **Le système est prêt!**""")
-        return
-
     user = get_user(user_id)
 
     if not user.get('registered'):
