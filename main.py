@@ -29,9 +29,9 @@ ADMIN_NAME = "Sossou Kouamé"
 ADMIN_TITLE = "Administrateur et développeur de ce Bot"
 
 # Configuration par défaut des canaux
-DEFAULT_SOURCE_CHANNEL_ID = -1002682552255  # Canal Source (reçoit les jeux)
-DEFAULT_PREDICTION_CHANNEL_ID = -1003502536129  # Canal Prédiction (envoie les prédictions)
-DEFAULT_VIP_CHANNEL_ID = -1003502536129  # Canal VIP (accès payant)
+DEFAULT_SOURCE_CHANNEL_ID = -1002682552255
+DEFAULT_PREDICTION_CHANNEL_ID = -1003502536129
+DEFAULT_VIP_CHANNEL_ID = -1003502536129
 DEFAULT_VIP_CHANNEL_LINK = "https://t.me/+3pHxyUtjt34zMzg0"
 
 # --- Configuration et Initialisation ---
@@ -60,8 +60,6 @@ session_string = os.getenv('TELEGRAM_SESSION', '')
 client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
 
 # --- Variables Globales ---
-
-# Configuration des canaux (modifiable par l'admin)
 channels_config = {
     'source_channel_id': DEFAULT_SOURCE_CHANNEL_ID,
     'prediction_channel_id': DEFAULT_PREDICTION_CHANNEL_ID,
@@ -69,8 +67,7 @@ channels_config = {
     'vip_channel_link': DEFAULT_VIP_CHANNEL_LINK
 }
 
-# Configuration par défaut des pauses (en secondes)
-DEFAULT_PAUSE_CYCLE = [180, 240, 420]  # 3min, 4min, 7min
+DEFAULT_PAUSE_CYCLE = [180, 240, 420]
 pause_config = {
     'cycle': DEFAULT_PAUSE_CYCLE.copy(),
     'current_index': 0,
@@ -81,14 +78,12 @@ pause_config = {
     'just_resumed': False
 }
 
-# Configuration de l'essai
-DEFAULT_TRIAL_DURATION = 15  # 15 minutes par défaut
+DEFAULT_TRIAL_DURATION = 15
 trial_config = {
     'duration_minutes': DEFAULT_TRIAL_DURATION,
-    'link_visible_seconds': 10  # 10 secondes
+    'link_visible_seconds': 10
 }
 
-# Configuration VIP
 vip_config = {
     'channel_id': DEFAULT_VIP_CHANNEL_ID,
     'channel_link': DEFAULT_VIP_CHANNEL_LINK
@@ -100,15 +95,12 @@ processed_messages = set()
 current_game_number = 0
 last_source_game_number = 0
 
-# NOUVEAU: Gestion des prédictions et vérification
-current_prediction_target = None  # Une seule prédiction active à la fois
+current_prediction_target = None
 last_predicted_number = None
-pending_finalization = {}  # Messages en attente de finalisation
+pending_finalization = {}
 
-# Cycle des costumes: ♥, ♠, ♦, ♣
 SUIT_CYCLE = ['♥', '♠', '♦', '♣']
 
-# Stats
 already_predicted_games = set()
 stats_bilan = {
     'total': 0,
@@ -118,7 +110,6 @@ stats_bilan = {
     'loss_details': {'❌': 0}
 }
 
-# --- Système de Paiement ---
 users_data = {}
 user_conversation_state = {}
 pending_payments = {}
@@ -128,7 +119,7 @@ admin_message_state = {}
 predictions_enabled = True
 
 # ============================================================
-# CONFIGURATION DE L'ESSAI (NOUVEAU)
+# CONFIGURATION DE L'ESSAI
 # ============================================================
 
 def load_trial_config():
@@ -156,11 +147,10 @@ def set_trial_duration(minutes):
     save_trial_config()
 
 # ============================================================
-# GESTION DES NUMÉROS PAIRS VALIDES (NOUVEAU)
+# GESTION DES NUMÉROS PAIRS VALIDES
 # ============================================================
 
 def get_valid_even_numbers():
-    """Génère la liste des numéros pairs valides (6-1436, sauf finissant par 0)."""
     valid_numbers = []
     for num in range(6, 1437):
         if num % 2 == 0 and num % 10 != 0:
@@ -170,29 +160,25 @@ def get_valid_even_numbers():
 VALID_EVEN_NUMBERS = get_valid_even_numbers()
 
 def get_suit_for_number(number):
-    """Attribue un costume selon le cycle."""
     if number not in VALID_EVEN_NUMBERS:
         return None
     idx = VALID_EVEN_NUMBERS.index(number) % len(SUIT_CYCLE)
     return SUIT_CYCLE[idx]
 
 def get_next_prediction_number(after_number):
-    """Trouve le prochain numéro pair valide après un numéro donné."""
     for num in VALID_EVEN_NUMBERS:
         if num > after_number:
             return num
     return None
 
 def get_previous_odd_number(even_number):
-    """Retourne le numéro impair précédent un numéro pair."""
     return even_number - 1
 
 def is_valid_prediction_number(number):
-    """Vérifie si un numéro est valide pour prédiction."""
     return number in VALID_EVEN_NUMBERS
 
 # ============================================================
-# GESTION DES PAUSES (NOUVEAU)
+# GESTION DES PAUSES
 # ============================================================
 
 def load_pause_config():
@@ -213,22 +199,18 @@ def save_pause_config():
         logger.error(f"Erreur sauvegarde pause_config: {e}")
 
 def get_next_pause_duration():
-    """Retourne la durée de la prochaine pause selon le cycle."""
     cycle = pause_config['cycle']
     idx = pause_config['current_index'] % len(cycle)
     return cycle[idx]
 
 def increment_pause_index():
-    """Incrémente l'index du cycle de pause."""
     pause_config['current_index'] += 1
     save_pause_config()
 
 def should_pause():
-    """Vérifie si on doit faire une pause après 5 prédictions."""
     return pause_config['predictions_count'] >= 5
 
 def start_pause():
-    """Démarre une pause."""
     duration = get_next_pause_duration()
     pause_config['is_paused'] = True
     pause_config['pause_end_time'] = (datetime.now() + timedelta(seconds=duration)).isoformat()
@@ -239,7 +221,6 @@ def start_pause():
     return duration
 
 def is_currently_paused():
-    """Vérifie si on est actuellement en pause."""
     if not pause_config['is_paused']:
         return False
     try:
@@ -256,7 +237,6 @@ def is_currently_paused():
         return False
 
 def get_remaining_pause_time():
-    """Retourne le temps de pause restant en secondes."""
     if not is_currently_paused():
         return 0
     try:
@@ -267,22 +247,19 @@ def get_remaining_pause_time():
         return 0
 
 def record_prediction():
-    """Enregistre qu'une prédiction a été faite."""
     pause_config['predictions_count'] += 1
     pause_config['last_prediction_time'] = datetime.now().isoformat()
     save_pause_config()
 
 def reset_pause_counter():
-    """Réinitialise le compteur de prédictions."""
     pause_config['predictions_count'] = 0
     save_pause_config()
 
 # ============================================================
-# GESTION DES CANAUX (CONFIGURABLE PAR L'ADMIN)
+# GESTION DES CANAUX
 # ============================================================
 
 def load_channels_config():
-    """Charge la configuration des canaux."""
     global channels_config
     try:
         if os.path.exists(CHANNELS_CONFIG_FILE):
@@ -296,7 +273,6 @@ def load_channels_config():
         logger.error(f"Erreur chargement channels_config: {e}")
 
 def save_channels_config():
-    """Sauvegarde la configuration des canaux."""
     try:
         with open(CHANNELS_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(channels_config, f, ensure_ascii=False, indent=2)
@@ -304,35 +280,28 @@ def save_channels_config():
         logger.error(f"Erreur sauvegarde channels_config: {e}")
 
 def get_source_channel_id():
-    """Retourne l'ID du canal source."""
     return channels_config.get('source_channel_id', DEFAULT_SOURCE_CHANNEL_ID)
 
 def get_prediction_channel_id():
-    """Retourne l'ID du canal de prédiction."""
     return channels_config.get('prediction_channel_id', DEFAULT_PREDICTION_CHANNEL_ID)
 
 def get_vip_channel_id():
-    """Retourne l'ID du canal VIP."""
     return channels_config.get('vip_channel_id', DEFAULT_VIP_CHANNEL_ID)
 
 def get_vip_channel_link():
-    """Retourne le lien du canal VIP."""
     return channels_config.get('vip_channel_link', DEFAULT_VIP_CHANNEL_LINK)
 
 def set_source_channel(channel_id: int):
-    """Définit le canal source."""
     channels_config['source_channel_id'] = channel_id
     save_channels_config()
     logger.info(f"Canal source mis à jour: {channel_id}")
 
 def set_prediction_channel(channel_id: int):
-    """Définit le canal de prédiction."""
     channels_config['prediction_channel_id'] = channel_id
     save_channels_config()
     logger.info(f"Canal prédiction mis à jour: {channel_id}")
 
 def set_vip_channel(channel_id: int, channel_link: str):
-    """Définit le canal VIP."""
     channels_config['vip_channel_id'] = channel_id
     channels_config['vip_channel_link'] = channel_link
     vip_config['channel_id'] = channel_id
@@ -342,7 +311,6 @@ def set_vip_channel(channel_id: int, channel_link: str):
     logger.info(f"Canal VIP mis à jour: ID={channel_id}")
 
 def reset_channels_config():
-    """Réinitialise tous les canaux aux valeurs par défaut."""
     global channels_config
     channels_config = {
         'source_channel_id': DEFAULT_SOURCE_CHANNEL_ID,
@@ -405,7 +373,7 @@ def get_user(user_id: int) -> dict:
             'pays': None,
             'trial_started': None,
             'trial_used': False,
-            'trial_joined_at': None,  # Nouveau: quand il a rejoint le canal
+            'trial_joined_at': None,
             'subscription_end': None,
             'subscription_type': None,
             'pending_payment': False,
@@ -414,8 +382,8 @@ def get_user(user_id: int) -> dict:
             'vip_expires_at': None,
             'vip_duration_minutes': None,
             'vip_joined_at': None,
-            'is_in_channel': False,  # Nouveau: statut dans le canal
-            'total_time_added': 0  # Nouveau: temps total ajouté (en minutes)
+            'is_in_channel': False,
+            'total_time_added': 0
         }
         save_users_data()
     return users_data[user_id_str]
@@ -452,7 +420,6 @@ def is_trial_active(user_id: int) -> bool:
         return False
 
 def get_trial_time_remaining(user_id: int) -> int:
-    """Retourne le temps d'essai restant en secondes."""
     user = get_user(user_id)
     if not user.get('trial_joined_at'):
         return 0
@@ -485,34 +452,28 @@ def format_time_remaining(expiry_iso: str) -> str:
     try:
         expiry = datetime.fromisoformat(expiry_iso)
         remaining = expiry - datetime.now()
-
         if remaining.total_seconds() <= 0:
             return "Expiré"
-
         total_seconds = int(remaining.total_seconds())
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         seconds = total_seconds % 60
-
         parts = []
         if hours > 0:
             parts.append(f"{hours}h")
         if minutes > 0 or hours > 0:
             parts.append(f"{minutes}m")
         parts.append(f"{seconds}s")
-
         return " ".join(parts)
     except:
         return "Inconnu"
 
 def format_seconds(seconds: int) -> str:
-    """Formate des secondes en format lisible."""
     if seconds <= 0:
         return "Expiré"
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
-    
     parts = []
     if hours > 0:
         parts.append(f"{hours}h")
@@ -520,28 +481,23 @@ def format_seconds(seconds: int) -> str:
         parts.append(f"{minutes}m")
     if secs > 0 or (hours == 0 and minutes == 0):
         parts.append(f"{secs}s")
-    
     return " ".join(parts)
 
 def parse_duration(input_str: str) -> int:
     input_str = input_str.strip().lower()
-
     if input_str.isdigit():
         return int(input_str)
-
     if input_str.endswith('h'):
         try:
             hours = float(input_str[:-1])
             return int(hours * 60)
         except:
             return 0
-
     if input_str.endswith('m'):
         try:
             return int(input_str[:-1])
         except:
             return 0
-
     return 0
 
 # ============================================================
@@ -549,7 +505,6 @@ def parse_duration(input_str: str) -> int:
 # ============================================================
 
 async def add_user_to_trial(user_id: int):
-    """Ajoute un utilisateur en période d'essai au canal VIP."""
     try:
         trial_duration = get_trial_duration()
         now = datetime.now()
@@ -561,7 +516,6 @@ async def add_user_to_trial(user_id: int):
             'trial_used': False
         })
 
-        # Envoyer le lien à l'utilisateur (disparaît après 10 secondes)
         vip_link = get_vip_channel_link()
         time_str = format_time_remaining(expires_at.isoformat())
 
@@ -579,10 +533,8 @@ async def add_user_to_trial(user_id: int):
 
 🚀 **Bonne chance avec les prédictions!**""")
 
-        # Programmer la suppression du message après 10 secondes
         asyncio.create_task(delete_message_after_delay(user_id, link_msg.id, 10))
 
-        # Notification à l'admin
         user = get_user(user_id)
         await client.send_message(ADMIN_ID, f"""🆕 **NOUVEL UTILISATEUR EN ESSAI**
 
@@ -594,7 +546,6 @@ async def add_user_to_trial(user_id: int):
 
 🔗 Lien envoyé (suppression dans 10s)""")
 
-        # Lancer l'expulsion automatique après l'essai
         asyncio.create_task(auto_kick_trial_user(user_id, trial_duration * 60))
 
         logger.info(f"Utilisateur {user_id} ajouté en essai pour {trial_duration} minutes")
@@ -605,13 +556,11 @@ async def add_user_to_trial(user_id: int):
         return False
 
 async def auto_kick_trial_user(user_id: int, delay_seconds: int):
-    """Expulse automatiquement l'utilisateur du canal après la période d'essai."""
     await asyncio.sleep(delay_seconds)
 
     try:
         user = get_user(user_id)
         
-        # Vérifier si l'utilisateur a souscrit entre-temps
         if is_user_subscribed(user_id):
             logger.info(f"Utilisateur {user_id} a souscrit, annulation de l'expulsion d'essai")
             return
@@ -621,7 +570,6 @@ async def auto_kick_trial_user(user_id: int, delay_seconds: int):
 
         vip_channel_id = get_vip_channel_id()
         
-        # Expulser du canal
         try:
             entity = await client.get_input_entity(vip_channel_id)
             await client.kick_participant(entity, user_id)
@@ -639,7 +587,6 @@ async def auto_kick_trial_user(user_id: int, delay_seconds: int):
             'trial_joined_at': None
         })
 
-        # Message de paiement à l'utilisateur
         buttons = [
             [Button.url("💳 Payer maintenant", PAYMENT_LINK)]
         ]
@@ -655,7 +602,6 @@ Vous avez été retiré du canal VIP après {get_trial_duration()} minutes.
         except:
             pass
 
-        # Notification à l'admin
         await client.send_message(ADMIN_ID, f"""🚫 **ESSAI TERMINÉ - UTILISATEUR RETIRÉ**
 
 🆔 **ID:** `{user_id}`
@@ -671,7 +617,6 @@ Message de paiement envoyé.""")
         logger.error(f"Erreur expulsion essai utilisateur {user_id}: {e}")
 
 async def add_user_to_vip(user_id: int, duration_minutes: int):
-    """Ajoute un utilisateur abonné au canal VIP."""
     try:
         now = datetime.now()
         expires_at = now + timedelta(minutes=duration_minutes)
@@ -685,7 +630,6 @@ async def add_user_to_vip(user_id: int, duration_minutes: int):
             'total_time_added': user.get('total_time_added', 0) + duration_minutes
         })
 
-        # Envoyer le lien à l'utilisateur (disparaît après 2 minutes pour abonnés)
         time_str = format_time_remaining(expires_at.isoformat())
         vip_link = get_vip_channel_link()
 
@@ -703,10 +647,8 @@ async def add_user_to_vip(user_id: int, duration_minutes: int):
 
 🚀 **Bonne chance avec les prédictions!**""")
 
-        # Programmer la suppression du message après 2 minutes
         asyncio.create_task(delete_message_after_delay(user_id, link_msg.id, 120))
 
-        # Notification à l'admin
         user = get_user(user_id)
         await client.send_message(ADMIN_ID, f"""✅ **UTILISATEUR ABONNÉ AU CANAL VIP**
 
@@ -718,7 +660,6 @@ async def add_user_to_vip(user_id: int, duration_minutes: int):
 
 🔗 Lien envoyé (sera supprimé dans 2 min)""")
 
-        # Lancer l'expulsion automatique
         asyncio.create_task(auto_kick_user(user_id, duration_minutes * 60))
 
         logger.info(f"Utilisateur {user_id} ajouté au canal VIP pour {duration_minutes} minutes")
@@ -729,7 +670,6 @@ async def add_user_to_vip(user_id: int, duration_minutes: int):
         return False
 
 async def delete_message_after_delay(chat_id: int, message_id: int, delay_seconds: int):
-    """Supprime un message après un délai."""
     await asyncio.sleep(delay_seconds)
     try:
         await client.delete_messages(chat_id, [message_id])
@@ -738,7 +678,6 @@ async def delete_message_after_delay(chat_id: int, message_id: int, delay_second
         logger.error(f"Erreur suppression message {message_id}: {e}")
 
 async def auto_kick_user(user_id: int, delay_seconds: int):
-    """Expulse automatiquement l'utilisateur du canal après le délai."""
     await asyncio.sleep(delay_seconds)
 
     try:
@@ -748,7 +687,6 @@ async def auto_kick_user(user_id: int, delay_seconds: int):
 
         vip_channel_id = get_vip_channel_id()
         
-        # S'assurer que l'entité du canal est connue
         try:
             entity = await client.get_input_entity(vip_channel_id)
         except Exception as e:
@@ -756,10 +694,8 @@ async def auto_kick_user(user_id: int, delay_seconds: int):
             await client.get_dialogs()
             entity = await client.get_input_entity(vip_channel_id)
 
-        # Expulser du canal
         await client.kick_participant(entity, user_id)
 
-        # Ré-autoriser pour qu'il puisse revenir
         await client(EditBannedRequest(
             channel=entity,
             participant=user_id,
@@ -773,7 +709,6 @@ async def auto_kick_user(user_id: int, delay_seconds: int):
             'subscription_end': None
         })
 
-        # Notifier l'utilisateur
         try:
             buttons = [
                 [Button.url("💳 Renouveler", PAYMENT_LINK)]
@@ -786,7 +721,6 @@ Vous avez été retiré du canal VIP.
         except:
             pass
 
-        # Notifier l'admin
         await client.send_message(ADMIN_ID, f"""🚫 **ABONNEMENT TERMINÉ - UTILISATEUR RETIRÉ**
 
 🆔 **ID:** `{user_id}`
@@ -800,11 +734,10 @@ L'utilisateur a été expulsé du canal VIP.""")
         logger.error(f"Erreur expulsion utilisateur {user_id}: {e}")
 
 # ============================================================
-# SYSTÈME DE PRÉDICTION CORRIGÉ
+# SYSTÈME DE PRÉDICTION
 # ============================================================
 
 async def send_prediction(target_game, predicted_suit, base_game):
-    """Envoie une prédiction dans le canal de prédiction."""
     global current_prediction_target, last_predicted_number
     
     if not predictions_enabled:
@@ -842,7 +775,6 @@ async def send_prediction(target_game, predicted_suit, base_game):
         return False
 
 async def update_prediction_status(game_number, status):
-    """Met à jour le statut d'une prédiction."""
     global current_prediction_target
     
     if not current_prediction_target:
@@ -869,7 +801,6 @@ async def update_prediction_status(game_number, status):
         
         await client.edit_message(channel_id, message_id, updated_msg)
         
-        # Mise à jour des stats
         if status in ['✅0️⃣', '✅1️⃣', '✅2️⃣']:
             stats_bilan['total'] += 1
             stats_bilan['wins'] += 1
@@ -879,7 +810,6 @@ async def update_prediction_status(game_number, status):
             stats_bilan['losses'] += 1
             stats_bilan['loss_details']['❌'] = stats_bilan['loss_details'].get('❌', 0) + 1
         
-        # Réinitialiser la prédiction courante
         current_prediction_target = None
         
         return True
@@ -889,32 +819,26 @@ async def update_prediction_status(game_number, status):
         return False
 
 # ============================================================
-# FONCTIONS D'ANALYSE DES MESSAGES (CORRIGÉES)
+# FONCTIONS D'ANALYSE DES MESSAGES
 # ============================================================
 
 def extract_game_number(message):
-    """Extrait le numéro de jeu du message."""
-    # Cherche #N suivi de chiffres
     match = re.search(r"#N\s*(\d+)", message, re.IGNORECASE)
     if match:
         return int(match.group(1))
-    # Cherche aussi # suivi de chiffres au début
     match = re.search(r"^#(\d+)", message)
     if match:
         return int(match.group(1))
     return None
 
 def extract_suits_from_parentheses(message_text):
-    """Extrait les costumes du premier groupe de parenthèses."""
     matches = re.findall(r"\(([^)]+)\)", message_text)
     if not matches:
         return []
     
-    # Premier groupe de parenthèses
     first_group = matches[0]
     suits = []
     
-    # Normalise et cherche les costumes
     normalized = first_group.replace('❤️', '♥').replace('❤', '♥').replace('♥️', '♥')
     normalized = normalized.replace('♠️', '♠').replace('♦️', '♦').replace('♣️', '♣')
     
@@ -925,18 +849,12 @@ def extract_suits_from_parentheses(message_text):
     return suits
 
 def is_message_finalized(message_text):
-    """Vérifie si un message est finalisé (contient ✅ ou 🔰)."""
     return '✅' in message_text or '🔰' in message_text
 
 def is_message_being_edited(message_text):
-    """Vérifie si un message est en cours d'édition (contient ▶️)."""
     return '▶️' in message_text
 
 async def check_prediction_result(source_message_text, target_game_number):
-    """
-    Vérifie si la prédiction est gagnante.
-    Retourne: '✅0️⃣', '✅1️⃣', '✅2️⃣', '❌', ou None
-    """
     if not current_prediction_target:
         return None
     
@@ -949,45 +867,37 @@ async def check_prediction_result(source_message_text, target_game_number):
     if current_game is None:
         return None
     
-    # Vérifier le numéro prédit (✅0️⃣)
     if current_game == target_game_number:
         suits = extract_suits_from_parentheses(source_message_text)
         if predicted_suit in suits:
             return '✅0️⃣'
-        # Si on est au numéro prédit mais costume pas trouvé, on continue à vérifier
     
-    # Vérifier numéro + 1 (✅1️⃣)
     if current_game == target_game_number + 1:
         suits = extract_suits_from_parentheses(source_message_text)
         if predicted_suit in suits:
             return '✅1️⃣'
     
-    # Vérifier numéro + 2 (✅2️⃣)
     if current_game == target_game_number + 2:
         suits = extract_suits_from_parentheses(source_message_text)
         if predicted_suit in suits:
             return '✅2️⃣'
-        # Si on est au +2 et pas trouvé, c'est perdu
     
-    # Si on est au numéro + 3 ou plus, c'est perdu
     if current_game >= target_game_number + 3:
         return '❌'
     
     return None
 
 # ============================================================
-# TRAITEMENT DES MESSAGES SOURCE (CORRIGÉ)
+# TRAITEMENT DES MESSAGES SOURCE
 # ============================================================
 
 async def process_source_message(event):
-    """Traite les messages reçus du canal source."""
     global current_game_number, last_source_game_number, current_prediction_target
     
     try:
         message_text = event.message.message
         logger.info(f"📩 Message source reçu: {message_text[:100]}...")
         
-        # Vérifier si c'est un message en édition (▶️)
         if is_message_being_edited(message_text):
             game_num = extract_game_number(message_text)
             if game_num:
@@ -995,7 +905,6 @@ async def process_source_message(event):
                 pending_finalization[game_num] = message_text
             return
         
-        # Vérifier si c'est un message finalisé (✅ ou 🔰)
         if not is_message_finalized(message_text):
             logger.info("Message non finalisé ignoré")
             return
@@ -1008,29 +917,24 @@ async def process_source_message(event):
         current_game_number = game_number
         last_source_game_number = game_number
         
-        # Vérifier si ce message était en attente de finalisation
         if game_number in pending_finalization:
             del pending_finalization[game_number]
         
         logger.info(f"🎲 Jeu finalisé détecté: #{game_number}")
         
-        # 1. VÉRIFICATION DES PRÉDICTIONS EXISTANTES
         if current_prediction_target:
             target_num = current_prediction_target['game_number']
             
-            # Vérifier si ce message concerne notre prédiction
             result = await check_prediction_result(message_text, target_num)
             
             if result:
                 logger.info(f"🎯 Résultat trouvé pour #{target_num}: {result}")
                 await update_prediction_status(target_num, result)
                 
-                # Si on était en pause, on ne fait pas de nouvelle prédiction immédiatement
                 if is_currently_paused():
                     logger.info("⏸️ En pause, pas de nouvelle prédiction")
                     return
         
-        # 2. GESTION DES PAUSES
         if is_currently_paused():
             remaining = get_remaining_pause_time()
             logger.info(f"⏸️ Pause en cours, {remaining}s restantes")
@@ -1049,34 +953,25 @@ async def process_source_message(event):
                 logger.error(f"Erreur envoi message pause: {e}")
             return
         
-        # 3. LOGIQUE APRÈS PAUSE - ATTENTE DU BON MOMENT
         if pause_config.get('just_resumed'):
             pause_config['just_resumed'] = False
             save_pause_config()
             
-            # Trouver le prochain numéro pair valide après le numéro actuel
             next_even = get_next_prediction_number(game_number)
             if not next_even:
                 logger.info("Aucun prochain numéro pair trouvé")
                 return
             
-            # Vérifier si on doit attendre l'impair précédent
             target_odd = get_previous_odd_number(next_even)
             
             if game_number < target_odd:
                 logger.info(f"⏳ Attente de #{target_odd} avant de prédire #{next_even} (après pause)")
-                return  # On attend encore
+                return
         
-        # 4. LANCER UNE NOUVELLE PRÉDICTION
-        # On prédit le prochain numéro pair valide après le numéro actuel
         if game_number in VALID_EVEN_NUMBERS or game_number % 2 == 1:
-            # Si on est sur un impair, le prochain pair est game_number + 1
-            # Si on est sur un pair, on cherche le suivant dans la liste
             if game_number % 2 == 0 and game_number % 10 != 0 and game_number >= 6:
-                # On est sur un pair valide, on prédit le suivant
                 next_num = get_next_prediction_number(game_number)
             else:
-                # On est sur un impair ou pair non valide, on cherche le prochain pair valide
                 next_num = get_next_prediction_number(game_number)
             
             if next_num and next_num not in already_predicted_games:
@@ -1100,19 +995,16 @@ async def handle_new_message(event):
     logger.info(f"Message reçu de {event.sender_id}: {event.message.message}")
     
     if event.is_group or event.is_channel:
-        # Analyser les messages du canal source
         if event.chat_id == get_source_channel_id():
             await process_source_message(event)
         return
 
-    # Si c'est une commande commençant par /, ne pas traiter ici pour laisser les handlers spécifiques agir
     if event.message.message and event.message.message.startswith('/'):
         return
 
     user_id = event.sender_id
     user = get_user(user_id)
 
-    # Gestion des états admin (durée)
     if user_id == ADMIN_ID and user_id in admin_setting_time:
         state = admin_setting_time[user_id]
         if state['step'] == 'awaiting_duration':
@@ -1133,7 +1025,6 @@ async def handle_new_message(event):
                 
             return
 
-    # Gestion des messages personnalisés de l'admin
     if user_id == ADMIN_ID and user_id in admin_message_state:
         state = admin_message_state[user_id]
         if state['step'] == 'awaiting_message':
@@ -1157,7 +1048,6 @@ async def handle_new_message(event):
             del admin_message_state[user_id]
             return
 
-    # Inscription
     if user_id in user_conversation_state:
         state = user_conversation_state[user_id]
         message_text = event.message.message.strip()
@@ -1199,7 +1089,6 @@ async def handle_new_message(event):
             })
             del user_conversation_state[user_id]
 
-            # Notification admin nouvelle inscription
             await client.send_message(ADMIN_ID, f"""🆕 **NOUVELLE INSCRIPTION**
 
 👤 **Nom:** {message_text} {user.get('nom', '')}
@@ -1208,7 +1097,6 @@ async def handle_new_message(event):
 
 L'utilisateur va recevoir le lien d'essai de {get_trial_duration()} min.""")
 
-            # Envoyer le lien d'essai immédiatement
             await add_user_to_trial(user_id)
 
             success_msg = f"""🎉 **INSCRIPTION RÉUSSIE!** 🎉
@@ -1230,7 +1118,6 @@ L'utilisateur va recevoir le lien d'essai de {get_trial_duration()} min.""")
             await event.respond(success_msg)
             return
 
-    # Gestion des captures d'écran
     if user.get('awaiting_screenshot') and event.message.photo:
         photo = event.message.photo
 
@@ -1341,11 +1228,6 @@ Votre paiement n'a pas été validé.
 
 @client.on(events.NewMessage(pattern=r'^/setchannel(\s+.+)?$'))
 async def cmd_setchannel(event):
-    """
-    Définit les canaux.
-    Usage: /setchannel type id
-    Types: source, prediction, vip
-    """
     if event.is_group or event.is_channel: 
         return
 
@@ -1408,7 +1290,6 @@ async def cmd_setchannel(event):
 
 @client.on(events.NewMessage(pattern='/channels'))
 async def cmd_channels(event):
-    """Affiche la configuration actuelle des canaux."""
     if event.is_group or event.is_channel: 
         return
 
@@ -1436,7 +1317,6 @@ Lien: {get_vip_channel_link()}
 
 @client.on(events.NewMessage(pattern='/resetchannels'))
 async def cmd_resetchannels(event):
-    """Réinitialise tous les canaux aux valeurs par défaut."""
     if event.is_group or event.is_channel: 
         return
 
@@ -1461,7 +1341,6 @@ Tous les canaux ont été réinitialisés aux valeurs par défaut:
 
 @client.on(events.NewMessage(pattern=r'^/settime(\s+\d+)?(\s+.+)?$'))
 async def cmd_settime(event):
-    """Définit la durée d'un utilisateur."""
     if event.is_group or event.is_channel: 
         return
 
@@ -1515,7 +1394,6 @@ async def cmd_settime(event):
 
 @client.on(events.NewMessage(pattern='/stop'))
 async def cmd_stop(event):
-    """Arrête les prédictions automatiques."""
     if event.sender_id != ADMIN_ID: 
         return
     global predictions_enabled
@@ -1524,23 +1402,16 @@ async def cmd_stop(event):
 
 @client.on(events.NewMessage(pattern='/resume'))
 async def cmd_resume(event):
-    """Force le redémarrage et débloque les prédictions."""
     if event.sender_id != ADMIN_ID: 
         return
     global predictions_enabled, already_predicted_games, current_prediction_target
     predictions_enabled = True
-    # Déblocage : on vide les verrous de sécurité
     already_predicted_games.clear()
     current_prediction_target = None
     await event.respond("🚀 **PRÉDICTIONS REDÉMARRÉES ET DÉBLOQUÉES**\n(Historique de sécurité vidé)")
 
 @client.on(events.NewMessage(pattern=r'^/setnext (\d+) ([♥♠♦♣])$'))
 async def cmd_setnext(event):
-    """
-    Commande pour l'administrateur : définit manuellement le prochain numéro à prédire.
-    Usage: /setnext NUMERO COSTUME
-    Exemple: /setnext 1234 ♥
-    """
     if event.is_group or event.is_channel: 
         return
 
@@ -1573,7 +1444,6 @@ async def cmd_setnext(event):
 
 @client.on(events.NewMessage(pattern=r'^/pausecycle(\s+.+)?$'))
 async def cmd_pausecycle(event):
-    """Configure le cycle de pause."""
     if event.is_group or event.is_channel:
         return
     
@@ -1599,7 +1469,7 @@ async def cmd_pausecycle(event):
     
     try:
         cycle_str = parts[1]
-        new_cycle = [int(x.strip()) * 60 for x in cycle_str.split(',')]  # Convertir en secondes
+        new_cycle = [int(x.strip()) * 60 for x in cycle_str.split(',')]
         
         if not new_cycle or any(x <= 0 for x in new_cycle):
             await event.respond("❌ Le cycle doit contenir des nombres positifs.")
@@ -1617,7 +1487,6 @@ async def cmd_pausecycle(event):
 
 @client.on(events.NewMessage(pattern='/predictinfo'))
 async def cmd_predictinfo(event):
-    """Affiche les infos de prédiction actuelles."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1639,7 +1508,6 @@ async def cmd_predictinfo(event):
 
 @client.on(events.NewMessage(pattern='/forcepause'))
 async def cmd_forcepause(event):
-    """Force une pause immédiate."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1649,7 +1517,6 @@ async def cmd_forcepause(event):
 
 @client.on(events.NewMessage(pattern='/resetpause'))
 async def cmd_resetpause(event):
-    """Réinitialise le compteur de pause."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1660,12 +1527,11 @@ async def cmd_resetpause(event):
     await event.respond("✅ **Compteur de pause réinitialisé**")
 
 # ============================================================
-# COMMANDES ADMIN - GESTION DES ESSAIS (NOUVEAU)
+# COMMANDES ADMIN - GESTION DES ESSAIS
 # ============================================================
 
 @client.on(events.NewMessage(pattern=r'^/settrialtime(\s+\d+)?$'))
 async def cmd_settrialtime(event):
-    """Définit la durée de l'essai (en minutes)."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1695,7 +1561,6 @@ async def cmd_settrialtime(event):
 
 @client.on(events.NewMessage(pattern='/trials'))
 async def cmd_trials(event):
-    """Liste les utilisateurs en période d'essai actifs."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1716,16 +1581,14 @@ async def cmd_trials(event):
     for i in range(0, len(trial_users), chunk_size):
         chunk = trial_users[i:i+chunk_size]
         chunk_text = '\n'.join(chunk)
-        await event.respond(f"""🎁 **UTILISATEURS EN ESSAI** ({i+1}-{min(i+len(chunk), len(trial_users))}/{len(trial_users)})
-
-{chunk_text}
-
-💡 `/extendtrial ID minutes` | `/canceltrial ID` | `/userinfo ID`""")
+        header = f"🎁 **UTILISATEURS EN ESSAI** ({i+1}-{min(i+len(chunk), len(trial_users))}/{len(trial_users)})\n\n"
+        body = chunk_text + "\n\n"
+        footer = "💡 `/extendtrial ID minutes` | `/canceltrial ID` | `/userinfo ID`"
+        await event.respond(header + body + footer)
         await asyncio.sleep(0.5)
 
 @client.on(events.NewMessage(pattern=r'^/extendtrial (\d+) (\d+)$'))
 async def cmd_extendtrial(event):
-    """Prolonge l'essai d'un utilisateur."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1742,16 +1605,10 @@ async def cmd_extendtrial(event):
             await event.respond(f"❌ L'utilisateur {user_id} n'est pas en essai actif.")
             return
         
-        # Calculer la nouvelle date d'expiration
         current_end = datetime.fromisoformat(user['trial_joined_at']) + timedelta(minutes=get_trial_duration())
         new_end = current_end + timedelta(minutes=additional_minutes)
-        
-        # Mettre à jour (on ajuste le trial_joined_at pour compenser)
         new_start = new_end - timedelta(minutes=get_trial_duration())
         update_user(user_id, {'trial_joined_at': new_start.isoformat()})
-        
-        # Annuler l'ancienne tâche d'expulsion et créer une nouvelle
-        # Note: En pratique, on laisse l'ancienne tâche expirer et on vérifie à l'expulsion
         
         await event.respond(f"""✅ **ESSAI PROLONGÉ**
 
@@ -1760,7 +1617,6 @@ async def cmd_extendtrial(event):
 ⏱️ **Temps ajouté:** {additional_minutes} minutes
 📅 **Nouvelle fin:** {new_end.strftime('%d/%m/%Y %H:%M:%S')}""")
         
-        # Notifier l'utilisateur
         try:
             await client.send_message(user_id, f"""⏱️ **VOTRE ESSAI A ÉTÉ PROLONGÉ!**
 
@@ -1776,7 +1632,6 @@ async def cmd_extendtrial(event):
 
 @client.on(events.NewMessage(pattern=r'^/canceltrial (\d+)$'))
 async def cmd_canceltrial(event):
-    """Annule l'essai et expulse immédiatement."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1792,7 +1647,6 @@ async def cmd_canceltrial(event):
             await event.respond(f"❌ L'utilisateur {user_id} n'est pas en essai actif.")
             return
         
-        # Expulser immédiatement
         vip_channel_id = get_vip_channel_id()
         try:
             entity = await client.get_input_entity(vip_channel_id)
@@ -1818,7 +1672,6 @@ async def cmd_canceltrial(event):
 
 L'utilisateur a été expulsé immédiatement.""")
         
-        # Notifier l'utilisateur
         try:
             await client.send_message(user_id, """❌ **VOTRE ESSAI A ÉTÉ ANNULÉ**
 
@@ -1833,12 +1686,11 @@ Vous avez été retiré du canal VIP.
         await event.respond(f"❌ Erreur: {e}")
 
 # ============================================================
-# COMMANDES ADMIN - GESTION DES ABONNÉS (NOUVEAU)
+# COMMANDES ADMIN - GESTION DES ABONNÉS
 # ============================================================
 
 @client.on(events.NewMessage(pattern='/subscribers'))
 async def cmd_subscribers(event):
-    """Liste les utilisateurs abonnés actifs avec temps restant."""
     if event.sender_id != ADMIN_ID:
         return
     
@@ -1860,8 +1712,628 @@ async def cmd_subscribers(event):
     for i in range(0, len(sub_users), chunk_size):
         chunk = sub_users[i:i+chunk_size]
         chunk_text = '\n'.join(chunk)
-        await event.respond(f"""✅ **ABONNÉS ACTIFS** ({i+1}-{min(i+len(chunk), len(sub_users))}/{len(sub_users)})
+        header = f"✅ **ABONNÉS ACTIFS** ({i+1}-{min(i+len(chunk), len(sub_users))}/{len(sub_users)})\n\n"
+        body = chunk_text + "\n\n"
+        footer = "💡 `/addtime ID durée` | `/removetime ID` | `/userinfo ID`"
+        await event.respond(header + body + footer)
+        await asyncio.sleep(0.5)
+
+@client.on(events.NewMessage(pattern=r'^/addtime (\d+) (.+)$'))
+async def cmd_addtime(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    try:
+        user_id = int(event.pattern_match.group(1))
+        duration_input = event.pattern_match.group(2).strip()
+        
+        if str(user_id) not in users_data:
+            await event.respond(f"❌ Utilisateur {user_id} non trouvé.")
+            return
+        
+        additional_minutes = parse_duration(duration_input)
+        if additional_minutes == 0:
+            await event.respond("❌ Format de durée invalide.")
+            return
+        
+        user = get_user(user_id)
+        
+        if not is_user_subscribed(user_id):
+            await add_user_to_vip(user_id, additional_minutes)
+            await event.respond(f"""✅ **NOUVEL ABONNEMENT CRÉÉ**
+
+🆔 **ID:** `{user_id}`
+👤 **Nom:** {user.get('prenom', '')} {user.get('nom', '')}
+⏱️ **Durée:** {additional_minutes} minutes""")
+            return
+        
+        current_end = datetime.fromisoformat(user['subscription_end'])
+        new_end = current_end + timedelta(minutes=additional_minutes)
+        
+        update_user(user_id, {
+            'subscription_end': new_end.isoformat(),
+            'vip_expires_at': new_end.isoformat(),
+            'total_time_added': user.get('total_time_added', 0) + additional_minutes
+        })
+        
+        await event.respond(f"""✅ **TEMPS AJOUTÉ**
+
+🆔 **ID:** `{user_id}`
+👤 **Nom:** {user.get('prenom', '')} {user.get('nom', '')}
+⏱️ **Temps ajouté:** {additional_minutes} minutes
+📅 **Nouvelle fin:** {new_end.strftime('%d/%m/%Y %H:%M:%S')}
+📊 **Total ajouté:** {user.get('total_time_added', 0) + additional_minutes} minutes""")
+        
+        try:
+            await client.send_message(user_id, f"""⏱️ **TEMPS AJOUTÉ À VOTRE ABONNEMENT!**
+
+✅ {additional_minutes} minutes ajoutées!
+📅 Nouvelle fin: {new_end.strftime('%d/%m/%Y %H:%M')}
+
+🚀 Profitez bien!""")
+        except:
+            pass
+        
+    except Exception as e:
+        await event.respond(f"❌ Erreur: {e}")
+
+@client.on(events.NewMessage(pattern=r'^/removetime (\d+)$'))
+async def cmd_removetime(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    try:
+        user_id = int(event.pattern_match.group(1))
+        
+        if str(user_id) not in users_data:
+            await event.respond(f"❌ Utilisateur {user_id} non trouvé.")
+            return
+        
+        user = get_user(user_id)
+        if not is_user_subscribed(user_id):
+            await event.respond(f"❌ L'utilisateur {user_id} n'est pas abonné.")
+            return
+        
+        vip_channel_id = get_vip_channel_id()
+        try:
+            entity = await client.get_input_entity(vip_channel_id)
+            await client.kick_participant(entity, user_id)
+            await client(EditBannedRequest(
+                channel=entity,
+                participant=user_id,
+                banned_rights=ChatBannedRights(until_date=None, view_messages=False)
+            ))
+        except Exception as e:
+            logger.error(f"Erreur expulsion: {e}")
+        
+        update_user(user_id, {
+            'subscription_end': None,
+            'vip_expires_at': None,
+            'vip_duration_minutes': None,
+            'is_in_channel': False
+        })
+        
+        await event.respond(f"""🚫 **ABONNEMENT TERMINÉ**
+
+🆔 **ID:** `{user_id}`
+👤 **Nom:** {user.get('prenom', '')} {user.get('nom', '')}
+
+L'utilisateur a été expulsé immédiatement.""")
+        
+        try:
+            await client.send_message(user_id, """❌ **VOTRE ABONNEMENT A ÉTÉ TERMINÉ**
+
+Vous avez été retiré du canal VIP.
+
+💳 Pour réintégrer le canal, payez maintenant:
+/payer""")
+        except:
+            pass
+        
+    except Exception as e:
+        await event.respond(f"❌ Erreur: {e}")
+
+# ============================================================
+# COMMANDE INFO UTILISATEUR
+# ============================================================
+
+@client.on(events.NewMessage(pattern=r'^/userinfo (\d+)$'))
+async def cmd_userinfo(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    try:
+        user_id = int(event.pattern_match.group(1))
+        
+        if str(user_id) not in users_data:
+            await event.respond(f"❌ Utilisateur {user_id} non trouvé.")
+            return
+        
+        user = get_user(user_id)
+        
+        status = get_user_status(user_id)
+        time_info = ""
+        
+        if is_trial_active(user_id):
+            remaining = get_trial_time_remaining(user_id)
+            time_info = f"\n⏳ **Essai restant:** {format_seconds(remaining)}"
+        elif is_user_subscribed(user_id):
+            remaining = format_time_remaining(user.get('subscription_end'))
+            time_info = f"\n⏳ **Abonnement restant:** {remaining}"
+        
+        history = f"\n📊 **Total temps ajouté:** {user.get('total_time_added', 0)} minutes"
+        
+        info = f"""📋 **INFORMATION UTILISATEUR**
+
+🆔 **ID:** `{user_id}`
+👤 **Nom:** {user.get('prenom', '')} {user.get('nom', '')}
+🌍 **Pays:** {user.get('pays', 'N/A')}
+📊 **Statut:** {status}
+🔗 **Dans le canal:** {'Oui' if user.get('is_in_channel') else 'Non'}{time_info}{history}
+
+**Dates:**
+• Inscription: {user.get('trial_started', 'N/A')[:19] if user.get('trial_started') else 'N/A'}
+• Début essai: {user.get('trial_joined_at', 'N/A')[:19] if user.get('trial_joined_at') else 'N/A'}
+• Début abonnement: {user.get('vip_joined_at', 'N/A')[:19] if user.get('vip_joined_at') else 'N/A'}
+
+💡 `/addtime {user_id} 2h` | `/removetime {user_id}`"""
+        
+        await event.respond(info)
+        
+    except Exception as e:
+        await event.respond(f"❌ Erreur: {e}")
+
+# ============================================================
+# COMMANDE MONITORING TEMPS RÉEL
+# ============================================================
+
+@client.on(events.NewMessage(pattern=r'^/monitor(\s+\d+)?$'))
+async def cmd_monitor(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    message_text = event.message.message.strip()
+    parts = message_text.split()
+    
+    if len(parts) > 1:
+        try:
+            user_id = int(parts[1])
+            if str(user_id) not in users_data:
+                await event.respond(f"❌ Utilisateur {user_id} non trouvé.")
+                return
+            
+            user = get_user(user_id)
+            status_lines = []
+            
+            if is_trial_active(user_id):
+                remaining = get_trial_time_remaining(user_id)
+                status_lines.append(f"🎁 **ESSAI:** {format_seconds(remaining)}")
+            elif is_user_subscribed(user_id):
+                remaining = format_time_remaining(user.get('subscription_end'))
+                status_lines.append(f"✅ **ABONNEMENT:** {remaining}")
+            else:
+                status_lines.append("❌ **AUCUN ACCÈS ACTIF**")
+            
+            await event.respond(f"""📊 **MONITORING** `{user_id}`
+
+{' | '.join(status_lines)}
+
+👤 {user.get('prenom', '')} {user.get('nom', '')}""")
+            return
+            
+        except ValueError:
+            pass
+    
+    active_users = []
+    
+    for user_id_str, user_info in users_data.items():
+        user_id = int(user_id_str)
+        line = f"🆔 `{user_id}`"
+        
+        if is_trial_active(user_id):
+            remaining = get_trial_time_remaining(user_id)
+            line += f" | 🎁 {format_seconds(remaining)}"
+            active_users.append((remaining, line))
+        elif is_user_subscribed(user_id):
+            remaining_str = format_time_remaining(user_info.get('subscription_end'))
+            try:
+                expiry = datetime.fromisoformat(user_info.get('subscription_end'))
+                remaining_secs = int((expiry - datetime.now()).total_seconds())
+                line += f" | ✅ {remaining_str}"
+                active_users.append((remaining_secs, line))
+            except:
+                line += f" | ✅ {remaining_str}"
+                active_users.append((999999, line))
+    
+    if not active_users:
+        await event.respond("📊 Aucun utilisateur actif à monitorer.")
+        return
+    
+    active_users.sort(key=lambda x: x[0])
+    top_users = [line for _, line in active_users[:20]]
+    
+    header = "⏱️ **MONITORING TEMPS RÉEL** (Top 20 - expirent bientôt)\n\n"
+    users_text = '\n'.join(top_users)
+    footer = f"\n\n💡 `/monitor ID` pour détails spécifiques"
+    
+    await event.respond(header + users_text + footer)
+
+@client.on(events.NewMessage(pattern='/users'))
+async def cmd_users(event):
+    if event.is_group or event.is_channel: 
+        return
+
+    if event.sender_id != ADMIN_ID:
+        await event.respond("❌ Commande réservée à l'administrateur.")
+        return
+
+    if not users_data:
+        await event.respond("📊 Aucun utilisateur.")
+        return
+
+    users_list = []
+    for user_id_str, user_info in users_data.items():
+        user_id = int(user_id_str)
+        nom = user_info.get('nom', 'N/A') or 'N/A'
+        prenom = user_info.get('prenom', 'N/A') or 'N/A'
+        status = get_user_status(user_id)
+
+        vip_info = ""
+        if user_info.get('vip_expires_at'):
+            vip_remaining = format_time_remaining(user_info['vip_expires_at'])
+            vip_info = f" | VIP: {vip_remaining}"
+
+        user_line = f"🆔 `{user_id}` | {prenom} {nom} | {status}{vip_info}"
+        users_list.append(user_line)
+
+    chunk_size = 50
+    for i in range(0, len(users_list), chunk_size):
+        chunk = users_list[i:i+chunk_size]
+        chunk_text = '\n'.join(chunk)
+        await event.respond(f"""📋 **UTILISATEURS** ({i+1}-{min(i+len(chunk), len(users_list))}/{len(users_list)})
 
 {chunk_text}
 
-💡 `/addtime ID durée` | `/rem
+💡 `/userinfo ID` | `/monitor` | `/settime ID DURÉE`""")
+        await asyncio.sleep(0.5)
+
+@client.on(events.NewMessage(pattern=r'^/msg (\d+)$'))
+async def cmd_msg(event):
+    if event.is_group or event.is_channel: 
+        return
+
+    if event.sender_id != ADMIN_ID:
+        await event.respond("❌ Commande réservée à l'administrateur.")
+        return
+
+    try:
+        target_user_id = int(event.pattern_match.group(1))
+
+        if str(target_user_id) not in users_data:
+            await event.respond(f"❌ Utilisateur {target_user_id} non trouvé.")
+            return
+
+        user_info = users_data[str(target_user_id)]
+
+        admin_message_state[event.sender_id] = {
+            'target_user_id': target_user_id,
+            'step': 'awaiting_message'
+        }
+
+        await event.respond(f"""✉️ **Message à {user_info.get('prenom', '')}** (ID: `{target_user_id}`)
+
+📝 Écrivez votre message:""")
+
+    except Exception as e:
+        await event.respond(f"❌ Erreur: {e}")
+
+@client.on(events.NewMessage(pattern='/status'))
+async def cmd_status(event):
+    if event.is_group or event.is_channel: 
+        return
+
+    user_id = event.sender_id
+    user = get_user(user_id)
+
+    if not user.get('registered'):
+        await event.respond("❌ Utilisez /start pour vous inscrire.")
+        return
+
+    response = f"""📊 **VOTRE STATUT**
+
+👤 **Nom:** {user.get('prenom', '')} {user.get('nom', '')}
+🌍 **Pays:** {user.get('pays', 'N/A')}
+📊 **Statut:** {get_user_status(user_id)}"""
+
+    if user.get('subscription_end'):
+        remaining = format_time_remaining(user['subscription_end'])
+        response += f"\n📅 **Abonnement:** {remaining}"
+
+    if is_trial_active(user_id):
+        remaining = get_trial_time_remaining(user_id)
+        response += f"\n🎁 **Essai:** {format_seconds(remaining)}"
+
+    response += "\n\n💡 `/payer` pour renouveler"
+
+    await event.respond(response)
+
+@client.on(events.NewMessage(pattern='/bilan'))
+async def cmd_bilan(event):
+    if event.is_group or event.is_channel: 
+        return
+    if event.sender_id != ADMIN_ID: 
+        return
+
+    if stats_bilan['total'] == 0:
+        await event.respond("📊 Aucune prédiction.")
+        return
+
+    win_rate = (stats_bilan['wins'] / stats_bilan['total']) * 100
+
+    await event.respond(f"""📊 **BILAN**
+
+🎯 Total: {stats_bilan['total']}
+✅ Victoires: {stats_bilan['wins']} ({win_rate:.1f}%)
+❌ Défaites: {stats_bilan['losses']}
+
+**Détails:**
+• Immédiates: {stats_bilan['win_details'].get('✅0️⃣', 0)}
+• 2ème: {stats_bilan['win_details'].get('✅1️⃣', 0)}
+• 3ème: {stats_bilan['win_details'].get('✅2️⃣', 0)}""")
+
+@client.on(events.NewMessage(pattern='/reset'))
+async def cmd_reset_all(event):
+    if event.is_group or event.is_channel: 
+        return
+    if event.sender_id != ADMIN_ID:
+        await event.respond("❌ Admin uniquement")
+        return
+
+    global users_data, pending_predictions, processed_messages
+    global current_game_number, last_source_game_number, stats_bilan
+    global already_predicted_games, pending_payments, current_prediction_target
+    global pending_finalization
+
+    users_data = {}
+    save_users_data()
+    pending_predictions.clear()
+    processed_messages.clear()
+    already_predicted_games.clear()
+    pending_payments.clear()
+    pending_finalization.clear()
+    current_prediction_target = None
+
+    current_game_number = 0
+    last_source_game_number = 0
+
+    stats_bilan = {
+        'total': 0, 'wins': 0, 'losses': 0,
+        'win_details': {'✅0️⃣': 0, '✅1️⃣': 0, '✅2️⃣': 0},
+        'loss_details': {'❌': 0}
+    }
+
+    await event.respond("🚨 **RESET EFFECTUÉ**")
+
+@client.on(events.NewMessage(pattern='/help'))
+async def cmd_help(event):
+    if event.is_group or event.is_channel: 
+        return
+
+    admin_cmds = ""
+    if event.sender_id == ADMIN_ID:
+        admin_cmds = """
+**Admin - Général:**
+/users - Liste tous les utilisateurs
+/userinfo ID - Détails d'un utilisateur
+/monitor - Monitorer temps restant
+/monitor ID - Détails spécifiques
+/msg ID - Envoyer message privé
+
+**Admin - Essai:**
+/trials - Liste essais actifs
+/settrialtime 15 - Durée essai (min)
+/extendtrial ID min - Prolonger essai
+/canceltrial ID - Annuler essai
+
+**Admin - Abonnés:**
+/subscribers - Liste abonnés actifs
+/addtime ID durée - Ajouter temps
+/removetime ID - Retirer et expulser
+
+**Admin - Système:**
+/setchannel TYPE ID - Configurer canaux
+/channels - Voir config canaux
+/pausecycle - Configurer cycle pause
+/predictinfo - Info prédiction
+/setnext NUM COSTUME - Forcer prédiction
+/bilan - Statistiques
+/reset - Tout réinitialiser
+"""
+
+    await event.respond(f"""📖 **AIDE**
+
+**Utilisateur:**
+/start - Inscription (15min essai)
+/status - Voir temps restant
+/payer - Renouveler
+/help - Cette aide
+
+{admin_cmds}
+**Support:** @Kouamappoloak""")
+
+@client.on(events.NewMessage(pattern='/payer'))
+async def cmd_payer(event):
+    if event.is_group or event.is_channel: 
+        return
+
+    user_id = event.sender_id
+    user = get_user(user_id)
+
+    if not user.get('registered'):
+        await event.respond("❌ Inscrivez-vous avec /start")
+        return
+
+    buttons = [
+        [Button.url("💳 24H - 200 FCFA", PAYMENT_LINK_24H)],
+        [Button.url("🔥 1 SEMAINE - 1000 FCFA", PAYMENT_LINK)],
+        [Button.url("💎 2 SEMAINES - 2000 FCFA", PAYMENT_LINK)]
+    ]
+
+    await event.respond(f"""💳 **PAIEMENT**
+
+**Étapes:**
+1️⃣ Cliquez sur votre formule
+2️⃣ Payez
+3️⃣ Envoyez la capture ici
+4️⃣ L'admin valide
+5️⃣ Vous recevez le lien (2 min)
+
+👇 **CHOISISSEZ:**""", buttons=buttons)
+
+    update_user(user_id, {'pending_payment': True, 'awaiting_screenshot': True})
+
+# ============================================================
+# SERVEUR WEB ET DÉMARRAGE
+# ============================================================
+
+async def index(request):
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot Baccarat - Prédictions</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; text-align: center; padding: 50px; }}
+        h1 {{ font-size: 3em; margin-bottom: 20px; }}
+        .status {{ background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; display: inline-block; margin: 20px; }}
+        .number {{ font-size: 2.5em; font-weight: bold; color: #ffd700; }}
+        .label {{ font-size: 1.2em; opacity: 0.9; }}
+    </style>
+</head>
+<body>
+    <h1>🎰 Bot Baccarat - Prédictions</h1>
+    <div class="status">
+        <div class="label">Jeu Actuel</div>
+        <div class="number">#{current_game_number}</div>
+    </div>
+    <div class="status">
+        <div class="label">Utilisateurs</div>
+        <div class="number">{len(users_data)}</div>
+    </div>
+    <div class="status">
+        <div class="label">Prédiction Active</div>
+        <div class="number">{current_prediction_target['game_number'] if current_prediction_target else 'Aucune'}</div>
+    </div>
+    <div class="status">
+        <div class="label">En Pause</div>
+        <div class="number">{'Oui' if is_currently_paused() else 'Non'}</div>
+    </div>
+    <div class="status">
+        <div class="label">Canal Source</div>
+        <div class="number">{get_source_channel_id()}</div>
+    </div>
+    <div class="status">
+        <div class="label">Canal Prédiction</div>
+        <div class="number">{get_prediction_channel_id()}</div>
+    </div>
+    <p style="margin-top: 40px;">✅ Système opérationnel | Essai: {get_trial_duration()}min | Vérification auto des résultats</p>
+</body>
+</html>"""
+    return web.Response(text=html, content_type='text/html', status=200)
+
+async def health_check(request):
+    return web.Response(text="OK", status=200)
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', index)
+    app.router.add_get('/health', health_check)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start() 
+
+async def schedule_daily_reset():
+    wat_tz = timezone(timedelta(hours=1)) 
+    reset_time = time(0, 59, tzinfo=wat_tz)
+
+    while True:
+        now = datetime.now(wat_tz)
+        await asyncio.sleep(3600)
+
+@client.on(events.NewMessage(pattern=r'^/start$'))
+async def cmd_start(event):
+    logger.info(f"Commande /start reçue de {event.sender_id}")
+    if event.is_group or event.is_channel: 
+        return
+
+    user_id = event.sender_id
+    user = get_user(user_id)
+
+    if user.get('registered'):
+        await event.respond(f"""👋 **RE-BONJOUR {user.get('prenom', '')}!**
+
+🚀 Votre compte est déjà actif.
+📊 Statut: {get_user_status(user_id)}
+
+💡 Utilisez /status pour voir votre temps restant.""")
+        return
+
+    user_conversation_state[user_id] = 'awaiting_nom'
+
+    welcome_msg = f"""👋 **BIENVENUE SUR LE BOT BACCARAT!**
+
+🚀 **Système de Prédiction Automatique**
+• Numéros pairs (6-1436, sauf finissant par 0)
+• Cycle de costumes: ♥ ♠ ♦ ♣
+• Pause auto après 5 prédictions
+• Vérification automatique des résultats
+
+📝 **Étape 1/3: Quel est votre nom de famille?**"""
+
+    await event.respond(welcome_msg)
+
+async def main():
+    while True:
+        try:
+            load_channels_config()
+            load_vip_config()
+            load_users_data()
+            load_pause_config()
+            load_trial_config()
+            
+            await start_web_server()
+            
+            await client.start(bot_token=BOT_TOKEN)
+            
+            logger.info("Récupération des dialogues pour le cache d'entités...")
+            try:
+                await client.get_entity(get_source_channel_id())
+                await client.get_entity(get_prediction_channel_id())
+                await client.get_entity(get_vip_channel_id())
+            except Exception as e:
+                logger.warning(f"Note: Certains canaux ne sont pas encore accessibles (normal pour un bot): {e}")
+            
+            me = await client.get_me()
+            logger.info(f"Connecté en tant que: {me.username} (ID: {me.id})")
+            
+            logger.info("Bot démarré avec succès!")
+            
+            await client.run_until_disconnected()
+            
+        except ConnectionError:
+            logger.warning("Connexion perdue, tentative de reconnexion...")
+            await asyncio.sleep(5)
+        except Exception as e:
+            if "A wait of" in str(e):
+                import re
+                match = re.search(r"(\d+) seconds", str(e))
+                wait_seconds = int(match.group(1)) if match else 300
+                logger.error(f"FloodWait: Attente de {wait_seconds} secondes...")
+                await asyncio.sleep(wait_seconds + 5)
+            else:
+                logger.error(f"Erreur main: {e}")
+                await asyncio.sleep(30)
+
+if __name__ == '__main__':
+    asyncio.run(main())
