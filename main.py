@@ -734,7 +734,7 @@ L'utilisateur a été expulsé du canal VIP.""")
         logger.error(f"Erreur expulsion utilisateur {user_id}: {e}")
 
 # ============================================================
-# SYSTÈME DE PRÉDICTION
+# SYSTÈME DE PRÉDICTION - CORRIGÉ AVEC VÉRIFICATION NUMÉRO
 # ============================================================
 
 async def send_prediction(target_game, predicted_suit, base_game):
@@ -742,6 +742,11 @@ async def send_prediction(target_game, predicted_suit, base_game):
     
     if not predictions_enabled:
         logger.info("Prédictions désactivées, envoi annulé.")
+        return False
+    
+    # 🔴 VÉRIFICATION: Éviter de prédire si une prédiction est déjà en cours
+    if current_prediction_target is not None:
+        logger.warning(f"Prédiction déjà en cours (#{current_prediction_target['game_number']}), nouvelle prédiction annulée")
         return False
     
     try:
@@ -854,50 +859,46 @@ def is_message_finalized(message_text):
 def is_message_being_edited(message_text):
     return '▶️' in message_text
 
-async def check_prediction_result(source_message_text, target_game_number):
+# 🔴 NOUVELLE FONCTION: Vérification avec correspondance exacte du numéro
+async def check_prediction_result(source_message_text, received_game_number):
+    """
+    Vérifie si le résultat correspond à la prédiction en cours.
+    Retourne: '✅0️⃣', '❌', ou None si pas encore déterminé
+    """
     if not current_prediction_target:
         return None
     
-    if current_prediction_target['game_number'] != target_game_number:
-        return None
-    
+    predicted_game_number = current_prediction_target['game_number']
     predicted_suit = current_prediction_target['suit']
-    current_game = extract_game_number(source_message_text)
     
-    if current_game is None:
+    # 🔴 VÉRIFICATION CRUCIALE: Le numéro reçu doit correspondre au numéro prédit
+    if received_game_number != predicted_game_number:
+        logger.info(f"Numéro reçu #{received_game_number} != Numéro prédit #{predicted_game_number}, attente...")
         return None
     
-    if current_game == target_game_number:
-        suits = extract_suits_from_parentheses(source_message_text)
-        if predicted_suit in suits:
-            return '✅0️⃣'
+    # Extraction des costumes du message source
+    suits = extract_suits_from_parentheses(source_message_text)
     
-    if current_game == target_game_number + 1:
-        suits = extract_suits_from_parentheses(source_message_text)
-        if predicted_suit in suits:
-            return '✅1️⃣'
-    
-    if current_game == target_game_number + 2:
-        suits = extract_suits_from_parentheses(source_message_text)
-        if predicted_suit in suits:
-            return '✅2️⃣'
-    
-    if current_game >= target_game_number + 3:
+    if predicted_suit in suits:
+        logger.info(f"✅ VICTOIRE: Costume {predicted_suit} trouvé dans #{received_game_number}!")
+        return '✅0️⃣'
+    else:
+        logger.info(f"❌ ÉCHEC: Costume {predicted_suit} PAS trouvé dans #{received_game_number}")
         return '❌'
-    
-    return None
 
 # ============================================================
-# TRAITEMENT DES MESSAGES SOURCE
+# TRAITEMENT DES MESSAGES SOURCE - CORRIGÉ
 # ============================================================
 
-async def process_source_message(event):
+async def process_source_message(event, is_edit=False):
     global current_game_number, last_source_game_number, current_prediction_target
     
     try:
         message_text = event.message.message
-        logger.info(f"📩 Message source reçu: {message_text[:100]}...")
+        msg_type = "ÉDITÉ" if is_edit else "NOUVEAU"
+        logger.info(f"📩 Message {msg_type} reçu: {message_text[:100]}...")
         
+        # Vérifier si c'est un message en cours d'édition
         if is_message_being_edited(message_text):
             game_num = extract_game_number(message_text)
             if game_num:
@@ -905,6 +906,7 @@ async def process_source_message(event):
                 pending_finalization[game_num] = message_text
             return
         
+        # Vérifier si le message est finalisé
         if not is_message_finalized(message_text):
             logger.info("Message non finalisé ignoré")
             return
@@ -917,24 +919,34 @@ async def process_source_message(event):
         current_game_number = game_number
         last_source_game_number = game_number
         
+        # Retirer des messages en attente si présent
         if game_number in pending_finalization:
             del pending_finalization[game_number]
         
-        logger.info(f"🎲 Jeu finalisé détecté: #{game_number}")
+        logger.info(f"🎲 Jeu finalisé détecté: #{game_number} (source: {msg_type})")
         
+        # 🔴 VÉRIFICATION: Si on attend une prédiction, vérifier le numéro
         if current_prediction_target:
             target_num = current_prediction_target['game_number']
             
-            result = await check_prediction_result(message_text, target_num)
-            
-            if result:
-                logger.info(f"🎯 Résultat trouvé pour #{target_num}: {result}")
-                await update_prediction_status(target_num, result)
+            # Vérifier si le numéro reçu correspond au numéro prédit
+            if game_number == target_num:
+                result = await check_prediction_result(message_text, game_number)
                 
-                if is_currently_paused():
-                    logger.info("⏸️ En pause, pas de nouvelle prédiction")
-                    return
+                if result:
+                    logger.info(f"🎯 Résultat trouvé pour #{target_num}: {result}")
+                    await update_prediction_status(target_num, result)
+                    
+                    # Réinitialiser pour la prochaine prédiction
+                    current_prediction_target = None
+                    
+                    if is_currently_paused():
+                        logger.info("⏸️ En pause, pas de nouvelle prédiction")
+                        return
+            else:
+                logger.info(f"⏳ Attente du numéro #{target_num}, actuel: #{game_number}")
         
+        # Gestion des pauses
         if is_currently_paused():
             remaining = get_remaining_pause_time()
             logger.info(f"⏸️ Pause en cours, {remaining}s restantes")
@@ -953,6 +965,7 @@ async def process_source_message(event):
                 logger.error(f"Erreur envoi message pause: {e}")
             return
         
+        # Gestion reprise après pause
         if pause_config.get('just_resumed'):
             pause_config['just_resumed'] = False
             save_pause_config()
@@ -968,6 +981,7 @@ async def process_source_message(event):
                 logger.info(f"⏳ Attente de #{target_odd} avant de prédire #{next_even} (après pause)")
                 return
         
+        # Lancer une nouvelle prédiction si conditions remplies
         if game_number in VALID_EVEN_NUMBERS or game_number % 2 == 1:
             if game_number % 2 == 0 and game_number % 10 != 0 and game_number >= 6:
                 next_num = get_next_prediction_number(game_number)
@@ -996,7 +1010,7 @@ async def handle_new_message(event):
     
     if event.is_group or event.is_channel:
         if event.chat_id == get_source_channel_id():
-            await process_source_message(event)
+            await process_source_message(event, is_edit=False)
         return
 
     if event.message.message and event.message.message.startswith('/'):
@@ -1161,7 +1175,7 @@ L'utilisateur va recevoir le lien d'essai de {get_trial_duration()} min.""")
         return
 
 # ============================================================
-# CALLBACKS VALIDATION PAIEMENT (CORRIGÉ)
+# CALLBACKS VALIDATION PAIEMENT
 # ============================================================
 
 @client.on(events.CallbackQuery(data=re.compile(rb'validate_payment_(\d+)')))
@@ -1527,6 +1541,48 @@ async def cmd_resetpause(event):
     await event.respond("✅ **Compteur de pause réinitialisé**")
 
 # ============================================================
+# COMMANDES ADMIN - DEBUG PRÉDICTION
+# ============================================================
+
+@client.on(events.NewMessage(pattern='/forcecheck'))
+async def cmd_forcecheck(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    global current_prediction_target
+    
+    if not current_prediction_target:
+        await event.respond("❌ Aucune prédiction en cours.")
+        return
+    
+    info = f"""🔍 **PRÉDICTION EN COURS**
+
+🎯 Numéro prédit: #{current_prediction_target['game_number']}
+🎨 Costume: {current_prediction_target['suit']}
+📊 Statut: {current_prediction_target['status']}
+🔢 Vérifications: {current_prediction_target['checks']}
+📺 Canal: {current_prediction_target['channel_id']}
+🆔 Message ID: {current_prediction_target['message_id']}
+
+💡 `/cleartarget` pour forcer la réinitialisation"""
+    
+    await event.respond(info)
+
+@client.on(events.NewMessage(pattern='/cleartarget'))
+async def cmd_cleartarget(event):
+    if event.sender_id != ADMIN_ID:
+        return
+    
+    global current_prediction_target
+    
+    if current_prediction_target:
+        old_target = current_prediction_target['game_number']
+        current_prediction_target = None
+        await event.respond(f"✅ Prédiction #{old_target} effacée. Nouvelle prédiction possible.")
+    else:
+        await event.respond("ℹ️ Aucune prédiction à effacer.")
+
+# ============================================================
 # COMMANDES ADMIN - GESTION DES ESSAIS
 # ============================================================
 
@@ -1698,11 +1754,11 @@ async def cmd_subscribers(event):
     for user_id_str, user_info in users_data.items():
         user_id = int(user_id_str)
         if is_user_subscribed(user_id):
-            remaining = format_time_remaining(user_info.get('subscription_end'))
+            remaining_str = format_time_remaining(user_info.get('subscription_end'))
             nom = user_info.get('prenom', '') or 'N/A'
             prenom = user_info.get('nom', '') or 'N/A'
             total_added = user_info.get('total_time_added', 0)
-            sub_users.append(f"🆔 `{user_id}` | {nom} {prenom} | ⏳ {remaining} | 📊 {total_added}min")
+            sub_users.append(f"🆔 `{user_id}` | {nom} {prenom} | ⏳ {remaining_str} | 📊 {total_added}min")
     
     if not sub_users:
         await event.respond("📊 Aucun abonné actif.")
@@ -2129,6 +2185,14 @@ async def cmd_help(event):
 /monitor ID - Détails spécifiques
 /msg ID - Envoyer message privé
 
+**Admin - Prédictions:**
+/forcecheck - Voir prédiction en cours
+/cleartarget - Effacer prédiction bloquée
+/predictinfo - Info système prédiction
+/stop - Arrêter prédictions
+/resume - Reprendre prédictions
+/setnext NUM COSTUME - Forcer prédiction
+
 **Admin - Essai:**
 /trials - Liste essais actifs
 /settrialtime 15 - Durée essai (min)
@@ -2144,8 +2208,6 @@ async def cmd_help(event):
 /setchannel TYPE ID - Configurer canaux
 /channels - Voir config canaux
 /pausecycle - Configurer cycle pause
-/predictinfo - Info prédiction
-/setnext NUM COSTUME - Forcer prédiction
 /bilan - Statistiques
 /reset - Tout réinitialiser
 """
@@ -2193,6 +2255,19 @@ async def cmd_payer(event):
     update_user(user_id, {'pending_payment': True, 'awaiting_screenshot': True})
 
 # ============================================================
+# GESTION DES MESSAGES ÉDITÉS - NOUVEAU
+# ============================================================
+
+@client.on(events.MessageEdited)
+async def handle_edited_message(event):
+    """Gère les messages édités dans le canal source"""
+    if event.is_group or event.is_channel:
+        if event.chat_id == get_source_channel_id():
+            logger.info(f"✏️ Message édité détecté dans le canal source")
+            await process_source_message(event, is_edit=True)
+        return
+
+# ============================================================
 # SERVEUR WEB ET DÉMARRAGE
 # ============================================================
 
@@ -2235,7 +2310,7 @@ async def index(request):
         <div class="label">Canal Prédiction</div>
         <div class="number">{get_prediction_channel_id()}</div>
     </div>
-    <p style="margin-top: 40px;">✅ Système opérationnel | Essai: {get_trial_duration()}min | Vérification auto des résultats</p>
+    <p style="margin-top: 40px;">✅ Système opérationnel | Essai: {get_trial_duration()}min | Vérification auto des résultats (y compris messages édités)</p>
 </body>
 </html>"""
     return web.Response(text=html, content_type='text/html', status=200)
@@ -2287,7 +2362,7 @@ async def cmd_start(event):
 • Numéros pairs (6-1436, sauf finissant par 0)
 • Cycle de costumes: ♥ ♠ ♦ ♣
 • Pause auto après 5 prédictions
-• Vérification automatique des résultats
+• Vérification automatique des résultats (même édités)
 
 📝 **Étape 1/3: Quel est votre nom de famille?**"""
 
