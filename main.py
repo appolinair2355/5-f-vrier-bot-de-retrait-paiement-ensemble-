@@ -187,9 +187,17 @@ def is_valid_prediction_number(number):
     return number in VALID_EVEN_NUMBERS
 
 def is_trigger_number(number):
-    """Vérifie si c'est un déclencheur (impair à 1 part d'un pair valide)"""
+    """Vérifie si c'est un déclencheur (impair finissant par 1,3,5,7 et suivant est pair valide)"""
+    # Doit être impair
     if number % 2 == 0:
         return False
+    
+    # Doit finir par 1, 3, 5, ou 7 (PAS par 9)
+    last_digit = number % 10
+    if last_digit not in [1, 3, 5, 7]:
+        return False
+    
+    # Le suivant doit être un pair valide
     next_num = number + 1
     return next_num in VALID_EVEN_NUMBERS
 
@@ -799,7 +807,7 @@ async def send_prediction(target_game, predicted_suit, base_game):
     
     # Vérifier si une prédiction est déjà en cours
     if verification_state['predicted_number'] is not None:
-        logger.warning(f"Prédiction déjà en cours (#{verification_state['predicted_number']}), nouvelle annulée")
+        logger.warning(f"⛔ BLOQUÉ: Prédiction #{verification_state['predicted_number']} déjà en cours")
         return False
     
     try:
@@ -826,7 +834,7 @@ async def send_prediction(target_game, predicted_suit, base_game):
         record_prediction()
         
         logger.info(f"✅ Prédiction envoyée: #{target_game} -> {predicted_suit}")
-        logger.info(f"🔍 Vérification démarrée: attendre #{target_game} (check 0/4)")
+        logger.info(f"🔍 Vérification démarrée: attendre #{target_game} (check 0/3)")
         return True
         
     except Exception as e:
@@ -838,7 +846,7 @@ async def send_prediction(target_game, predicted_suit, base_game):
 # ============================================================
 
 async def update_prediction_status(status):
-    """Met à jour le statut de la prédiction dans le canal - FORMAT SIMPLIFIÉ"""
+    """Met à jour le statut de la prédiction et libère le système"""
     global verification_state, stats_bilan
     
     if verification_state['predicted_number'] is None:
@@ -850,7 +858,7 @@ async def update_prediction_status(status):
         predicted_num = verification_state['predicted_number']
         suit = verification_state['predicted_suit']
         
-        # 🔴 FORMAT SIMPLIFIÉ: Juste le statut + "GAGNÉ" ou "PERDU"
+        # Format simplifié
         if status == "❌":
             status_text = "❌ PERDU"
         elif status in ["✅0️⃣", "✅1️⃣", "✅2️⃣", "✅3️⃣"]:
@@ -864,7 +872,7 @@ async def update_prediction_status(status):
         
         await client.edit_message(channel_id, message_id, updated_msg)
         
-        # Mettre à jour les stats
+        # Stats
         if status in ['✅0️⃣', '✅1️⃣', '✅2️⃣', '✅3️⃣']:
             stats_bilan['total'] += 1
             stats_bilan['wins'] += 1
@@ -874,8 +882,10 @@ async def update_prediction_status(status):
             stats_bilan['losses'] += 1
             stats_bilan['loss_details']['❌'] = stats_bilan['loss_details'].get('❌', 0) + 1
         
-        # Réinitialiser l'état de vérification
-        logger.info(f"🏁 Prédiction #{predicted_num} terminée avec statut: {status}")
+        # Libération explicite
+        logger.info(f"🔓 LIBÉRATION: Prédiction #{predicted_num} terminée avec {status}. Système prêt.")
+        
+        # Réinitialisation complète
         verification_state = {
             'predicted_number': None,
             'predicted_suit': None,
@@ -945,43 +955,36 @@ async def process_verification(game_number, message_text):
     global verification_state
     
     if verification_state['predicted_number'] is None:
-        return  # Pas de prédiction en cours
+        return
     
     predicted_num = verification_state['predicted_number']
     predicted_suit = verification_state['predicted_suit']
     current_check = verification_state['current_check']
     
-    # Calculer quel numéro on doit vérifier maintenant
-    expected_number = predicted_num + current_check
-    
-    # Vérifier si c'est le bon numéro
-    if game_number != expected_number:
-        logger.info(f"⏳ Attente #{expected_number}, reçu #{game_number} - ignoré")
-        return
-    
     # Vérifier le costume dans le premier groupe
     suits = extract_first_group_suits(message_text)
-    logger.info(f"🔍 Vérification #{game_number} (check {current_check}/3): costumes trouvés {suits}, attendu {predicted_suit}")
+    logger.info(f"🔍 Vérification #{game_number}: costumes {suits}, attendu {predicted_suit}")
     
+    # Costume trouvé = GAGNÉ
     if predicted_suit in suits:
-        # Costume trouvé !
         status = f"✅{current_check}️⃣"
+        logger.info(f"🎉 GAGNÉ! Costume {predicted_suit} trouvé sur #{game_number} (check {current_check})")
         await update_prediction_status(status)
         return
     
-    # Costume pas trouvé, passer au suivant
+    # Costume pas trouvé, essayer les checks suivants
     if current_check < 3:
         # Passer au check suivant (N+1, N+2, N+3)
         verification_state['current_check'] += 1
         next_num = predicted_num + verification_state['current_check']
         logger.info(f"❌ Pas trouvé sur #{game_number}, prochain check: #{next_num}")
     else:
-        # Dernier check (N+3) échoué
-        logger.info(f"❌ Perdu après 4 vérifications (jusqu'à #{game_number})")
+        # Dernier check (N+3) échoué = PERDU
+        logger.info(f"💔 PERDU! Costume {predicted_suit} non trouvé après 4 vérifications")
         await update_prediction_status("❌")
 
 # ============================================================
-# TRAITEMENT DES MESSAGES SOURCE - CORRIGÉ
+# TRAITEMENT DES MESSAGES SOURCE - MODIFIÉ
 # ============================================================
 
 async def process_source_message(event, is_edit=False):
@@ -998,44 +1001,55 @@ async def process_source_message(event, is_edit=False):
             logger.debug(f"Message {msg_type} sans numéro détecté")
             return
         
-        logger.info(f"📩 Message {msg_type} reçu: #{game_number} - {message_text[:80]}...")
+        logger.info(f"📩 Message {msg_type} reçu: #{game_number}")
         
-        # 🔴 LANCEMENT AUTO: Vérifier dès que possible si c'est un déclencheur
-        # (même si le message n'est pas finalisé - sauf si en pause)
-        if verification_state['predicted_number'] is None and not is_currently_paused():
-            await check_and_launch_prediction(game_number)
-        
-        # Si message en édition (⏰), stocker et attendre pour la VÉRIFICATION
-        if is_message_being_edited(message_text):
-            logger.info(f"⏳ Message #{game_number} en édition, mise en attente pour vérification...")
-            pending_finalization[game_number] = message_text
+        # ============================================================
+        # ÉTAPE 1: VÉRIFICATION PRÉCÉDENTE (PRIORITÉ ABSOLUE)
+        # ============================================================
+        if verification_state['predicted_number'] is not None:
+            predicted_num = verification_state['predicted_number']
+            current_check = verification_state['current_check']
+            expected_number = predicted_num + current_check
+            
+            # Ce message correspond-t-il à la vérification attendue ?
+            if game_number == expected_number:
+                logger.info(f"🔍 VÉRIFICATION: Prédiction #{predicted_num} - Check {current_check}/3 - Message #{game_number}")
+                await process_verification(game_number, message_text)
+                
+                # Si la prédiction est terminée, on peut envisager une nouvelle
+                if verification_state['predicted_number'] is None:
+                    logger.info(f"✅ PRÉDICTION #{predicted_num} TERMINÉE. Nouvelle prédiction possible.")
+                else:
+                    logger.info(f"⏳ PRÉDICTION #{verification_state['predicted_number']} TOUJOURS EN COURS")
+            else:
+                logger.info(f"⏳ ATTENTION: Prédiction #{predicted_num} en cours, attend #{expected_number}, reçu #{game_number}")
+            
+            # On ne fait jamais de nouveau lancement si une prédiction est en cours
             return
         
-        # Si message finalisé (✅ ou 🔰)
-        if is_message_finalized(message_text):
-            # Retirer des pending si présent
+        # ============================================================
+        # ÉTAPE 2: NOUVEAU LANCEMENT (seulement si aucune prédiction active)
+        # ============================================================
+        if not is_currently_paused():
+            await check_and_launch_prediction(game_number)
+        else:
+            remaining = get_remaining_pause_time()
+            logger.info(f"⏸️ Système en pause. Prochaine prédiction dans {remaining}s")
+        
+        # Gestion des messages pour suivi
+        if is_message_being_edited(message_text):
+            pending_finalization[game_number] = message_text
+            
+        elif is_message_finalized(message_text):
             if game_number in pending_finalization:
                 del pending_finalization[game_number]
-            
             current_game_number = game_number
             last_source_game_number = game_number
             
-            logger.info(f"✅ Message #{game_number} finalisé détecté")
-            
-            # 🔴 VÉRIFICATION: Si on a une prédiction en cours, vérifier ce numéro
-            if verification_state['predicted_number'] is not None:
-                await process_verification(game_number, message_text)
-        
-        # Si message ni en édition ni finalisé
-        elif not is_message_being_edited(message_text):
-            # Message normal sans ✅/🔰 (rare mais possible)
+        else:
             current_game_number = game_number
             last_source_game_number = game_number
             
-            # Vérifier quand même pour la vérification si une prédiction est en cours
-            if verification_state['predicted_number'] is not None:
-                await process_verification(game_number, message_text)
-        
     except Exception as e:
         logger.error(f"❌ Erreur process_source_message: {e}")
         import traceback
@@ -1044,13 +1058,18 @@ async def process_source_message(event, is_edit=False):
 async def check_and_launch_prediction(game_number):
     """
     Vérifie si on doit lancer une prédiction automatique
-    LANCEMENT INSTANTANÉ dès qu'on détecte un déclencheur
+    BLOQUE si une prédiction précédente n'est pas encore vérifiée
     """
     global pause_config
     
-    # Vérifier si c'est un déclencheur (impair à 1 part)
+    # Vérification stricte: Une prédiction en cours ?
+    if verification_state['predicted_number'] is not None:
+        logger.warning(f"⛔ BLOQUÉ: Prédiction #{verification_state['predicted_number']} en attente. Déclencheur #{game_number} ignoré.")
+        return
+    
+    # Vérifier si c'est un déclencheur (impair finissant par 1,3,5,7)
     if not is_trigger_number(game_number):
-        logger.info(f"#{game_number} n'est pas un déclencheur, attente...")
+        logger.debug(f"#{game_number} n'est pas un déclencheur (doit finir par 1,3,5,7)")
         return
     
     # Obtenir le pair valide cible
@@ -1061,7 +1080,7 @@ async def check_and_launch_prediction(game_number):
     
     # Vérifier si déjà prédit
     if target_num in already_predicted_games:
-        logger.info(f"#{target_num} déjà prédit, ignoré")
+        logger.info(f"#{target_num} déjà prédit précédemment, ignoré")
         return
     
     # Vérifier pause
@@ -1082,15 +1101,16 @@ async def check_and_launch_prediction(game_number):
     if pause_config.get('just_resumed'):
         pause_config['just_resumed'] = False
         save_pause_config()
-        logger.info(f"🔄 Reprise après pause, déclencheur #{game_number} détecté")
+        logger.info(f"🔄 Reprise après pause")
     
-    # 🔴 LANCER IMMÉDIATEMENT sans attendre la finalisation !
+    # Lancer uniquement si aucune prédiction active
     suit = get_suit_for_number(target_num)
     if suit:
-        logger.info(f"🔮 Déclencheur #{game_number} détecté → Prédiction #{target_num} -> {suit} (LANCÉ INSTANTANÉMENT)")
+        logger.info(f"🔮 DÉCLENCHEUR #{game_number} → Prédiction #{target_num} -> {suit}")
         success = await send_prediction(target_num, suit, game_number)
         if success:
             already_predicted_games.add(target_num)
+            logger.info(f"✅ Prédiction #{target_num} lancée. Attente vérification complète.")
 
 # ============================================================
 # GESTION DES MESSAGES ET COMMANDES - CORRIGÉ POUR ADMIN
