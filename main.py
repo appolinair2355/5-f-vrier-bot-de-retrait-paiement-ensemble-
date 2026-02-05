@@ -211,7 +211,7 @@ def set_channels(source_id=None, prediction_id=None, vip_id=None, vip_link=None)
     if vip_link:
         channels_config['vip_channel_link'] = vip_link
     save_json(CHANNELS_CONFIG_FILE, channels_config)
-    logger.info(f"Canaux mis à jour: {channels_config}")
+    logger.info(f"Canaux mis à jour")
 
 # ============================================================
 # GESTION UTILISATEURS
@@ -483,7 +483,7 @@ async def auto_kick_user(user_id: int, delay_seconds: int):
         logger.error(f"Erreur expulsion {user_id}: {e}")
 
 # ============================================================
-# SYSTÈME DE PRÉDICTION ET CYCLE DE PAUSE - CORRIGÉ
+# SYSTÈME DE PRÉDICTION ET VÉRIFICATION - CORRIGÉ
 # ============================================================
 
 async def send_prediction(target_game: int, predicted_suit: str, base_game: int):
@@ -520,8 +520,8 @@ async def send_prediction(target_game: int, predicted_suit: str, base_game: int)
         
         last_predicted_number = target_game
         
-        logger.info(f"🚀 PRÉDICTION #{target_game} ({predicted_suit}) LANCÉE sur canal {prediction_channel_id}")
-        logger.info(f"🔍 Attente: #{target_game} (check 0/3)")
+        logger.info(f"🚀 PRÉDICTION #{target_game} ({predicted_suit}) LANCÉE")
+        logger.info(f"🔍 Attente vérification: #{target_game} (check 0/3)")
         
         return True
         
@@ -566,7 +566,7 @@ async def update_prediction_status(status: str):
             stats_bilan['losses'] += 1
             logger.info(f"💔 #{predicted_num} PERDU")
         
-        logger.info(f"🔓 SYSTÈME LIBÉRÉ")
+        logger.info(f"🔓 SYSTÈME LIBÉRÉ - Nouvelle prédiction possible")
         
         verification_state = {
             'predicted_number': None, 'predicted_suit': None,
@@ -580,104 +580,19 @@ async def update_prediction_status(status: str):
         logger.error(f"❌ Erreur mise à jour statut: {e}")
         return False
 
-async def check_and_launch_prediction(game_number: int):
-    """
-    Vérifie et lance une prédiction avec CYCLE DE PAUSE CORRIGÉ
-    """
-    global pause_config
-    
-    # 1. BLOQUAGE SI PRÉDICTION EN COURS
-    if verification_state['predicted_number'] is not None:
-        logger.warning(f"⛔ BLOQUÉ: Attente fin prédiction #{verification_state['predicted_number']}")
-        return
-    
-    # 2. VÉRIFIER PAUSE ACTIVE
-    if pause_config['is_paused']:
-        try:
-            end_time = datetime.fromisoformat(pause_config['pause_end_time'])
-            if datetime.now() < end_time:
-                remaining = int((end_time - datetime.now()).total_seconds())
-                logger.info(f"⏸️ Pause active: {remaining}s restantes")
-                return
-            # Pause terminée
-            pause_config['is_paused'] = False
-            pause_config['just_resumed'] = True
-            save_json(PAUSE_CONFIG_FILE, pause_config)
-            logger.info("🔄 Pause terminée, reprise activité")
-        except Exception as e:
-            logger.error(f"Erreur vérification pause: {e}")
-            pause_config['is_paused'] = False
-    
-    # 3. VÉRIFIER DÉCLENCHEUR
-    if not is_trigger_number(game_number):
-        return
-    
-    target_num = get_trigger_target(game_number)
-    if not target_num or target_num in already_predicted_games:
-        return
-    
-    # 4. 🔴 CYCLE DE PAUSE - INCRÉMENTER AVANT VÉRIFICATION
-    pause_config['predictions_count'] += 1
-    current_count = pause_config['predictions_count']
-    
-    logger.info(f"📊 Prédiction compteur: {current_count}/5")
-    
-    # 5. 🔴 VÉRIFIER SI PAUSE NÉCESSAIRE (5 atteint)
-    if current_count > 5:
-        # Sécurité: ne devrait pas arriver, mais reset si dépassement
-        pause_config['predictions_count'] = 1
-        current_count = 1
-        logger.warning("Compteur reset (dépassement)")
-    
-    if current_count == 5:
-        # 🔴 DÉCLENCHER LA PAUSE - DERNIERE PRÉDICTION AVANT PAUSE
-        cycle = pause_config['cycle']
-        idx = pause_config['current_index'] % len(cycle)
-        duration = cycle[idx]
-        
-        # Mettre en pause AVANT d'envoyer la prédiction
-        pause_config['is_paused'] = True
-        pause_config['pause_end_time'] = (datetime.now() + timedelta(seconds=duration)).isoformat()
-        pause_config['current_index'] += 1  # Prochain cycle
-        save_json(PAUSE_CONFIG_FILE, pause_config)
-        
-        minutes = duration // 60
-        cycle_num = pause_config['current_index']
-        
-        logger.info(f"⏸️ PAUSE #{cycle_num}: {minutes}min (cycle {idx+1}/{len(cycle)})")
-        
-        # Envoyer message pause
-        try:
-            await client.send_message(
-                get_prediction_channel_id(),
-                f"⏸️ **PAUSE AUTOMATIQUE #{cycle_num}**\n⏱️ Durée: {minutes} minutes\n🔄 Prochain cycle: {[x//60 for x in cycle]}\n⏳ Retour bientôt..."
-            )
-        except Exception as e:
-            logger.error(f"Erreur envoi message pause: {e}")
-        
-        # 🔴 RESET COMPTEUR POUR PROCHAINE SÉRIE
-        pause_config['predictions_count'] = 0
-        save_json(PAUSE_CONFIG_FILE, pause_config)
-        
-        # Ne pas lancer de prédiction pendant la pause
-        return
-    
-    # 6. LANCER PRÉDICTION (compteur 1-4)
-    suit = get_suit_for_number(target_num)
-    if suit:
-        success = await send_prediction(target_num, suit, game_number)
-        if success:
-            already_predicted_games.add(target_num)
-            logger.info(f"✅ Prédiction #{target_num} lancée ({current_count}/5 avant pause)")
-
 # ============================================================
-# ANALYSE MESSAGES SOURCE
+# ANALYSE MESSAGES SOURCE - CORRIGÉ POUR VÉRIFICATION
 # ============================================================
 
 def extract_game_number(message: str) -> int:
-    """Extrait le numéro de jeu du message"""
+    """Extrait le numéro de jeu du message (supporte #N, #R, #X, etc.)"""
+    # Chercher #N suivi de chiffres en premier
+    match = re.search(r"#N\s*(\d+)", message, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    
+    # Autres patterns
     patterns = [
-        r"#N\s*(\d+)",
         r"^#(\d+)",
         r"N\s*(\d+)",
         r"Numéro\s*(\d+)",
@@ -690,13 +605,19 @@ def extract_game_number(message: str) -> int:
             return int(match.group(1))
     return None
 
-def extract_suits(message_text: str) -> list:
-    """Extrait les costumes du PREMIER groupe de parenthèses"""
+def extract_suits_from_first_group(message_text: str) -> list:
+    """
+    Extrait les costumes du PREMIER groupe de parenthèses
+    Fonctionne pour messages normaux et finalisés
+    """
     matches = re.findall(r"\(([^)]+)\)", message_text)
     if not matches:
         return []
     
+    # Premier groupe uniquement
     first_group = matches[0]
+    
+    # Normalisation complète
     normalized = first_group.replace('❤️', '♥').replace('❤', '♥')
     normalized = normalized.replace('♠️', '♠').replace('♦️', '♦').replace('♣️', '♣')
     normalized = normalized.replace('♥️', '♥')
@@ -706,10 +627,22 @@ def extract_suits(message_text: str) -> list:
         if suit in normalized:
             suits.append(suit)
     
+    logger.debug(f"Costumes trouvés dans premier groupe '{first_group}': {suits}")
     return suits
 
+def is_message_editing(message_text: str) -> bool:
+    """Vérifie si le message est en cours d'édition (commence par ⏰)"""
+    return message_text.strip().startswith('⏰')
+
+def is_message_finalized(message_text: str) -> bool:
+    """Vérifie si le message est finalisé (contient ✅ ou 🔰)"""
+    return '✅' in message_text or '🔰' in message_text)
+
 async def process_verification_step(game_number: int, message_text: str):
-    """Traite UNE étape de vérification"""
+    """
+    Traite UNE étape de vérification
+    Cherche le costume dans le PREMIER groupe de parenthèses
+    """
     global verification_state
     
     if verification_state['predicted_number'] is None:
@@ -724,25 +657,108 @@ async def process_verification_step(game_number: int, message_text: str):
         logger.warning(f"⚠️ Reçu #{game_number} != attendu #{expected_number}")
         return
     
-    suits = extract_suits(message_text)
-    logger.info(f"🔍 Vérification #{game_number}: trouvé {suits}, attendu {predicted_suit}")
+    # Extraire costumes du PREMIER groupe de parenthèses
+    suits = extract_suits_from_first_group(message_text)
+    logger.info(f"🔍 Vérification #{game_number}: premier groupe contient {suits}, attendu {predicted_suit}")
     
+    # Vérifier si costume trouvé
     if predicted_suit in suits:
         status = f"✅{current_check}️⃣"
-        logger.info(f"🎉 GAGNÉ au check {current_check}!")
+        logger.info(f"🎉 GAGNÉ! Costume {predicted_suit} trouvé dans premier groupe au check {current_check}")
         await update_prediction_status(status)
         return
     
+    # Pas trouvé, continuer si possible
     if current_check < 3:
         verification_state['current_check'] += 1
         next_num = predicted_num + verification_state['current_check']
-        logger.info(f"❌ Check {current_check} échoué, prochain: #{next_num}")
+        logger.info(f"❌ Check {current_check} échoué sur #{game_number}, prochain: #{next_num}")
     else:
-        logger.info(f"💔 PERDU après 4 checks")
+        logger.info(f"💔 PERDU après 4 vérifications (jusqu'à #{game_number})")
         await update_prediction_status("❌")
 
+async def check_and_launch_prediction(game_number: int):
+    """
+    Vérifie et lance une prédiction avec CYCLE DE PAUSE CORRIGÉ
+    """
+    global pause_config
+    
+    # 🔴 BLOQUAGE SI PRÉDICTION EN COURS - ATTENDRE VÉRIFICATION COMPLÈTE
+    if verification_state['predicted_number'] is not None:
+        logger.warning(f"⛔ BLOQUÉ: Prédiction #{verification_state['predicted_number']} en attente de vérification. Déclencheur #{game_number} ignoré.")
+        return
+    
+    # Vérifier pause active
+    if pause_config['is_paused']:
+        try:
+            end_time = datetime.fromisoformat(pause_config['pause_end_time'])
+            if datetime.now() < end_time:
+                remaining = int((end_time - datetime.now()).total_seconds())
+                logger.info(f"⏸️ Pause active: {remaining}s restantes")
+                return
+            pause_config['is_paused'] = False
+            pause_config['just_resumed'] = True
+            save_json(PAUSE_CONFIG_FILE, pause_config)
+            logger.info("🔄 Pause terminée, reprise")
+        except:
+            pause_config['is_paused'] = False
+    
+    # Vérifier déclencheur
+    if not is_trigger_number(game_number):
+        return
+    
+    target_num = get_trigger_target(game_number)
+    if not target_num or target_num in already_predicted_games:
+        return
+    
+    # CYCLE DE PAUSE - incrémenter avant vérification
+    pause_config['predictions_count'] += 1
+    current_count = pause_config['predictions_count']
+    
+    logger.info(f"📊 Prédiction {current_count}/5 avant pause")
+    
+    # Si 5 atteint, déclencher pause
+    if current_count >= 5:
+        cycle = pause_config['cycle']
+        idx = pause_config['current_index'] % len(cycle)
+        duration = cycle[idx]
+        
+        pause_config['is_paused'] = True
+        pause_config['pause_end_time'] = (datetime.now() + timedelta(seconds=duration)).isoformat()
+        pause_config['current_index'] += 1
+        save_json(PAUSE_CONFIG_FILE, pause_config)
+        
+        minutes = duration // 60
+        
+        logger.info(f"⏸️ PAUSE: {minutes}min")
+        
+        # Message simple sans détails du cycle
+        try:
+            await client.send_message(
+                get_prediction_channel_id(),
+                f"⏸️ **PAUSE**\n⏱️ {minutes} minutes..."
+            )
+        except Exception as e:
+            logger.error(f"Erreur envoi message pause: {e}")
+        
+        pause_config['predictions_count'] = 0
+        save_json(PAUSE_CONFIG_FILE, pause_config)
+        
+        return
+    
+    # Lancer prédiction
+    suit = get_suit_for_number(target_num)
+    if suit:
+        success = await send_prediction(target_num, suit, game_number)
+        if success:
+            already_predicted_games.add(target_num)
+            logger.info(f"✅ Prédiction #{target_num} lancée ({current_count}/5)")
+
 async def process_source_message(event, is_edit: bool = False):
-    """Traite les messages du canal source"""
+    """
+    Traite les messages du canal source
+    Gère: messages normaux, messages édités, finalisés
+    """
     global current_game_number, last_source_game_number
     
     try:
@@ -752,27 +768,54 @@ async def process_source_message(event, is_edit: bool = False):
         if game_number is None:
             return
         
-        logger.info(f"📩 {'ÉDITÉ' if is_edit else 'NOUVEAU'}: #{game_number}")
+        is_editing = is_message_editing(message_text)
+        is_finalized = is_message_finalized(message_text)
         
-        # ÉTAPE 1: VÉRIFICATION PRÉCÉDENTE
+        log_type = "ÉDITÉ" if is_edit else "NOUVEAU"
+        log_status = "⏰" if is_editing else ("✅" if is_finalized else "📝")
+        logger.info(f"📩 {log_status} {log_type}: #{game_number}")
+        
+        # ============================================================
+        # ÉTAPE 1: VÉRIFICATION PRÉCÉDENTE (PRIORITÉ MAXIMALE)
+        # ============================================================
         if verification_state['predicted_number'] is not None:
             predicted_num = verification_state['predicted_number']
             current_check = verification_state['current_check']
             expected_number = predicted_num + current_check
             
+            # 🔴 VÉRIFICATION: Si message en édition (⏰), attendre finalisation
+            if is_editing and game_number == expected_number:
+                logger.info(f"⏳ Message #{game_number} en édition, attente finalisation (✅/🔰)")
+                # On ne vérifie PAS encore, on attend la finalisation
+                return
+            
+            # Si c'est le numéro attendu ET finalisé (ou normal), vérifier
             if game_number == expected_number:
-                await process_verification_step(game_number, message_text)
-                
-                if verification_state['predicted_number'] is not None:
-                    return
+                if is_finalized or not is_editing:
+                    logger.info(f"✅ Numéro #{game_number} finalisé/disponible, vérification...")
+                    await process_verification_step(game_number, message_text)
+                    
+                    # Si toujours en cours après vérification, ne rien faire d'autre
+                    if verification_state['predicted_number'] is not None:
+                        logger.info(f"⏳ Prédiction #{verification_state['predicted_number']} toujours en cours")
+                        return
+                    else:
+                        logger.info("✅ Vérification terminée, système libre")
+                else:
+                    logger.info(f"⏳ Attente finalisation pour #{game_number}")
             else:
                 logger.info(f"⏭️ Attente #{expected_number}, reçu #{game_number}")
             
+            # 🔴 JAMAIS de nouveau lancement si vérification en cours
             return
         
-        # ÉTAPE 2: NOUVEAU LANCEMENT
+        # ============================================================
+        # ÉTAPE 2: NOUVEAU LANCEMENT (système libre)
+        # ============================================================
+        # Le système de lancement vérifie lui-même s'il peut lancer
         await check_and_launch_prediction(game_number)
         
+        # Suivi des numéros
         current_game_number = game_number
         last_source_game_number = game_number
         
@@ -1006,7 +1049,7 @@ Attend: #{next_check}"""
 • Compteur: {pause_config['predictions_count']}/5
 • Cycle: {cycle_mins} minutes
 • Position: {current_idx + 1}/{len(cycle_mins)}
-• Prochaine pause: {cycle_mins[next_pause_idx]} min (après 5 prédictions)
+• Prochaine pause: {cycle_mins[next_pause_idx]} min
 
 💡 /pausecycle pour modifier
 💡 /clearverif si bloqué
