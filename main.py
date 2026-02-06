@@ -67,7 +67,7 @@ pause_config = {
     'just_resumed': False
 }
 
-DEFAULT_TRIAL_DURATION = 15
+DEFAULT_TRIAL_DURATION = 1440
 trial_config = {
     'duration_minutes': DEFAULT_TRIAL_DURATION
 }
