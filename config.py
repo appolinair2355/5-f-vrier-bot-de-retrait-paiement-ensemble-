@@ -8,8 +8,8 @@ ADMIN_ID = 1190237801
 
 # Canaux (À MODIFIER selon tes besoins)
 SOURCE_CHANNEL_ID = -1002682552255      # Canal qui reçoit les jeux
-PREDICTION_CHANNEL_ID = -1003502536129  # Canal des prédictions
-VIP_CHANNEL_ID = -1003502536129         # Canal VIP privé
+PREDICTION_CHANNEL_ID = -1003329818758  # Canal des prédictions
+VIP_CHANNEL_ID = -1003329818758         # Canal VIP privé
 VIP_CHANNEL_LINK = "https://t.me/+3pHxyUtjt34zMzg0"
 
 # Configuration supplémentaire
